@@ -209,14 +209,16 @@ static int luaB_collectgarbage (lua_State *L) {
   switch (o) {
     case LUA_GCCOUNT: {
       int k = lua_gc(L, o);
-      int b = lua_gc(L, LUA_GCCOUNTB);
       checkvalres(k);
 #if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
       /* Push KB as integer so Lua-side `count * 1024` uses 64-bit int
       ** arithmetic instead of overflowing Q16.16 float (~32KB max). */
       lua_pushinteger(L, (lua_Integer)k);
 #else
-      lua_pushnumber(L, (lua_Number)k + ((lua_Number)b/1024));
+      {
+        int b = lua_gc(L, LUA_GCCOUNTB);
+        lua_pushnumber(L, (lua_Number)k + ((lua_Number)b/1024));
+      }
 #endif
       return 1;
     }

@@ -247,4 +247,118 @@ do
 end
 
 
+-- ===== Determinism patches =====
+
+print "testing deterministic pairs() (insertion-order iteration)"
+
+-- insertion order is preserved
+do
+  local t = {}
+  local keys = {"z", "a", "m", "b", "x", "c", "w"}
+  for _, k in ipairs(keys) do t[k] = true end
+  local result = {}
+  for k in pairs(t) do result[#result+1] = k end
+  for i, k in ipairs(keys) do
+    assert(result[i] == k, "order mismatch at " .. i)
+  end
+end
+
+-- two tables with same insertion order iterate identically
+do
+  local t1, t2 = {}, {}
+  local keys = {"alpha", "beta", "gamma", "delta", "epsilon"}
+  for _, k in ipairs(keys) do t1[k] = true end
+  for _, k in ipairs(keys) do t2[k] = true end
+  local r1, r2 = {}, {}
+  for k in pairs(t1) do r1[#r1+1] = k end
+  for k in pairs(t2) do r2[#r2+1] = k end
+  assert(#r1 == #r2)
+  for i = 1, #r1 do assert(r1[i] == r2[i]) end
+end
+
+-- deleted keys are skipped, order of remaining keys preserved
+do
+  local t = {}
+  for i = 1, 10 do t["k"..i] = i end
+  t["k3"] = nil
+  t["k7"] = nil
+  local result = {}
+  for k in pairs(t) do result[#result+1] = k end
+  -- should be k1,k2,k4,k5,k6,k8,k9,k10 in insertion order
+  assert(#result == 8)
+  local expected = {"k1","k2","k4","k5","k6","k8","k9","k10"}
+  for i, k in ipairs(expected) do
+    assert(result[i] == k, "delete-skip mismatch at " .. i ..
+           ": expected " .. k .. ", got " .. tostring(result[i]))
+  end
+end
+
+-- insert-delete-insert cycle preserves order correctly
+do
+  local t = {}
+  for i = 1, 20 do t["k"..i] = i end
+  for i = 1, 10 do t["k"..i] = nil end
+  for i = 21, 30 do t["k"..i] = i end
+  local count = 0
+  for k, v in pairs(t) do count = count + 1 end
+  assert(count == 20, "insert-delete-insert: expected 20, got " .. count)
+end
+
+-- large table stress test
+do
+  local t = {}
+  for i = 1, 100 do t["key"..i] = i end
+  for i = 1, 50 do t["key"..i] = nil end
+  for i = 101, 150 do t["key"..i] = i end
+  local count = 0
+  for _ in pairs(t) do count = count + 1 end
+  assert(count == 100, "large stress: expected 100, got " .. count)
+end
+
+-- re-setting an existing key keeps original position
+do
+  local t = {}
+  t.a = 1; t.b = 2; t.c = 3
+  t.b = 99  -- update value, not a new key
+  local result = {}
+  for k in pairs(t) do result[#result+1] = k end
+  assert(result[1] == "a" and result[2] == "b" and result[3] == "c")
+end
+
+-- mixed array + hash: array part iterates first, then hash in insertion order
+do
+  local t = {}
+  t[1] = "one"
+  t["x"] = "ex"
+  t[2] = "two"
+  t["y"] = "why"
+  local result = {}
+  for k in pairs(t) do result[#result+1] = tostring(k) end
+  -- array keys 1,2 first, then hash keys x,y in insertion order
+  assert(result[1] == "1" and result[2] == "2")
+  assert(result[3] == "x" and result[4] == "y")
+end
+
+
+print "testing deterministic tostring()"
+
+-- tostring(table) uses counter-based IDs, not pointers
+do
+  local t1 = {}
+  local t2 = {}
+  local s1 = tostring(t1)
+  local s2 = tostring(t2)
+  -- format: "table: <number>"
+  assert(string.find(s1, "^table: %d+$"), "unexpected format: " .. s1)
+  assert(string.find(s2, "^table: %d+$"), "unexpected format: " .. s2)
+  -- IDs are sequential
+  local id1 = tonumber(string.match(s1, "%d+"))
+  local id2 = tonumber(string.match(s2, "%d+"))
+  assert(id2 > id1, "IDs should be sequential")
+end
+
+-- tostring is deterministic: same program produces same IDs each run
+-- (this is implicitly tested by the test suite running identically)
+
+
 print "OK"

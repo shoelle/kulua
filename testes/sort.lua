@@ -32,7 +32,9 @@ do print "testing 'table.create'"
   m = collectgarbage("count") * 1024
   t = table.create(0, 1024)
   memdiff = collectgarbage("count") * 1024 - m
-  assert(memdiff > 1024 * 12)
+  if not _fixedpoint then  -- memdiff overflows Q16.16
+    assert(memdiff > 1024 * 12)
+  end
   assert(not T or select(2, T.querytab(t)) == 1024)
 
   local maxint1 = 1 << (string.packsize("i") * 8 - 1)

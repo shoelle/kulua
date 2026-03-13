@@ -61,5 +61,10 @@ LUALIB_API void (luaL_openselectedlibs) (lua_State *L, int load, int preload);
 /* open all libraries */
 #define luaL_openlibs(L)	luaL_openselectedlibs(L, ~0, 0)
 
+#if defined(LUA_FIXED_POINT)
+/* open sandbox-safe libraries (no os, io, debug; strips load/dofile) */
+LUALIB_API void (kulua_opensandboxlibs) (lua_State *L);
+#endif
+
 
 #endif

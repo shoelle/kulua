@@ -946,7 +946,12 @@ LUALIB_API const char *luaL_tolstring (lua_State *L, int idx, size_t *len) {
         int tt = luaL_getmetafield(L, idx, "__name");  /* try name */
         const char *kind = (tt == LUA_TSTRING) ? lua_tostring(L, -1) :
                                                  luaL_typename(L, idx);
+#if defined(LUA_FIXED_POINT)
+        lua_pushfstring(L, "%s: %I", kind,
+                        (lua_Integer)lua_toobjid(L, idx));
+#else
         lua_pushfstring(L, "%s: %p", kind, lua_topointer(L, idx));
+#endif
         if (tt != LUA_TNIL)
           lua_remove(L, -2);  /* remove '__name' */
         break;
@@ -1136,6 +1141,20 @@ static void warnfon (void *ud, const char *message, int tocont) {
 */
 #if !defined(luai_makeseed)
 
+#if defined(LUA_FIXED_POINT)
+
+/*
+** Deterministic seed for fixed-point builds.  String hashing must be
+** reproducible across runs so that hash-table bucket layout (and thus
+** pairs() iteration order) is identical for the same sequence of
+** operations.
+*/
+static unsigned int luai_makeseed (void) {
+  return 0;
+}
+
+#else
+
 #include <time.h>
 
 
@@ -1167,6 +1186,8 @@ static unsigned int luai_makeseed (void) {
     res ^= (res >> 3) + (res << 7) + buff[i];
   return res;
 }
+
+#endif  /* LUA_FIXED_POINT */
 
 #endif
 

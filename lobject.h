@@ -298,7 +298,12 @@ typedef union {
 ** Common Header for all collectable objects (in macro form, to be
 ** included in other objects)
 */
+#if defined(LUA_FIXED_POINT)
+#define CommonHeader	struct GCObject *next; lu_byte tt; lu_byte marked; \
+			lua_Unsigned kulua_objid
+#else
 #define CommonHeader	struct GCObject *next; lu_byte tt; lu_byte marked
+#endif
 
 
 /* Common type for all collectable objects */
@@ -753,6 +758,9 @@ typedef union Node {
     TValuefields;  /* fields for value */
     lu_byte key_tt;  /* key type */
     int next;  /* for chaining */
+#if defined(LUA_FIXED_POINT)
+    int insert_next;  /* insertion-order chain (-1 = tail) */
+#endif
     Value key_val;  /* key value */
   } u;
   TValue i_val;  /* direct access to node's value as a proper 'TValue' */
@@ -780,6 +788,10 @@ typedef struct Table {
   unsigned int asize;  /* number of slots in 'array' array */
   Value *array;  /* array part */
   Node *node;
+#if defined(LUA_FIXED_POINT)
+  int insert_head;  /* first node in insertion order (-1 = empty) */
+  int insert_tail;  /* last node in insertion order (-1 = empty) */
+#endif
   struct Table *metatable;
   GCObject *gclist;
 } Table;

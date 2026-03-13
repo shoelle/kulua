@@ -489,6 +489,17 @@ LUA_API lua_State *lua_tothread (lua_State *L, int idx) {
 ** a 'size_t'. (As the returned pointer is only informative, this
 ** conversion should not be a problem.)
 */
+#if defined(LUA_FIXED_POINT)
+LUA_API lua_Unsigned lua_toobjid (lua_State *L, int idx) {
+  const TValue *o = index2value(L, idx);
+  if (iscollectable(o))
+    return gcvalue(o)->kulua_objid;
+  else
+    return 0;
+}
+#endif
+
+
 LUA_API const void *lua_topointer (lua_State *L, int idx) {
   const TValue *o = index2value(L, idx);
   switch (ttypetag(o)) {

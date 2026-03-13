@@ -61,3 +61,30 @@ LUALIB_API void luaL_openselectedlibs (lua_State *L, int load, int preload) {
   lua_pop(L, 1);  /* remove PRELOAD table */
 }
 
+
+#if defined(LUA_FIXED_POINT)
+
+#include "lstate.h"
+
+/*
+** Safe library subset for sandboxed game scripts.
+** Loads: base, math, string, table, utf8, coroutine.
+** Omits: os, io, debug, package.
+** Strips: loadfile, dofile, load from base.
+** Disables: __gc finalizers.
+*/
+#define KULUA_SANDBOX_LIBS (LUA_GLIBK | LUA_MATHLIBK | LUA_STRLIBK | \
+                            LUA_TABLIBK | LUA_UTF8LIBK | LUA_COLIBK)
+
+LUALIB_API void kulua_opensandboxlibs (lua_State *L) {
+  luaL_openselectedlibs(L, KULUA_SANDBOX_LIBS, 0);
+  /* strip dangerous functions from base library */
+  lua_pushnil(L); lua_setglobal(L, "loadfile");
+  lua_pushnil(L); lua_setglobal(L, "dofile");
+  lua_pushnil(L); lua_setglobal(L, "load");
+  /* disable __gc finalizers */
+  G(L)->kulua_no_gc_metamethod = 1;
+}
+
+#endif
+

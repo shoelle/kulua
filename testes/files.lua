@@ -464,6 +464,7 @@ end
 
 
 do print("testing flush")
+if not _port then
   local f = io.output("/dev/null")
   assert(f:write("abcd"))   -- write to buffer
   assert(f:flush())         -- write to device
@@ -477,6 +478,7 @@ do print("testing flush")
   assert(f:write("abcd"))   -- write to buffer
   assert(not io.flush())    -- cannot write to device
   assert(f:close())
+end
 end
 
 

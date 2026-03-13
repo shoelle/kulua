@@ -609,9 +609,11 @@ debug.sethook(function (e) a=a+1 end, "", 4000)
 a=0; for i=1,1000 do end; assert(a == 0)
 
 do
-  debug.sethook(print, "", 2^24 - 1)   -- count upperbound
+  -- 2^24 overflows Q16.16; use integer literal for fixed-point
+  local upperbound = _fixedpoint and 32767 or (2^24 - 1)
+  debug.sethook(print, "", upperbound)   -- count upperbound
   local f,m,c = debug.gethook()
-  assert(({debug.gethook()})[3] == 2^24 - 1)
+  assert(({debug.gethook()})[3] == upperbound)
 end
 
 debug.sethook()

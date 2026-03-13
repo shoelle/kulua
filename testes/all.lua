@@ -4,7 +4,7 @@
 
 global <const> *
 
-global _soft, _port, _nomsg
+global _soft, _port, _nomsg, _fixedpoint
 global T
 
 local version = "Lua 5.5"
@@ -36,6 +36,9 @@ if usertests then
   _port = true   -- avoid non-portable tests
   _nomsg = true  -- avoid messages about tests not performed
 end
+
+-- Detect Q16.16 fixed-point builds (math.huge is INT32_MAX / 65536 ≈ 32767)
+_fixedpoint = (math.huge < 100000) or false
 
 -- tests should require debug when needed
 global debug; debug = nil

@@ -214,7 +214,7 @@ static int luaB_collectgarbage (lua_State *L) {
 #if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
       /* k is KB as int, b is remaining bytes (0-1023).
       ** Q16.16: k<<16 for integer part, b*64 for fractional part (b/1024). */
-      lua_pushnumber(L, (lua_Number)((k << 16) + (b * 64)));
+      lua_pushnumber(L, (lua_Number)((k * 65536) + (b * 64)));
 #else
       lua_pushnumber(L, (lua_Number)k + ((lua_Number)b/1024));
 #endif

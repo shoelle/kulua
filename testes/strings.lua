@@ -95,9 +95,9 @@ assert(string.byte("hi", 2, 1) == nil)
 assert(string.char() == "")
 assert(string.char(0, 255, 0) == "\0\255\0")
 assert(string.char(0, string.byte("\xe4"), 0) == "\0\xe4\0")
-assert(string.char(string.byte("\xe4l\0óu", 1, -1)) == "\xe4l\0óu")
-assert(string.char(string.byte("\xe4l\0óu", 1, 0)) == "")
-assert(string.char(string.byte("\xe4l\0óu", -10, 100)) == "\xe4l\0óu")
+assert(string.char(string.byte("\xe4l\0ï¿½u", 1, -1)) == "\xe4l\0ï¿½u")
+assert(string.char(string.byte("\xe4l\0ï¿½u", 1, 0)) == "")
+assert(string.char(string.byte("\xe4l\0ï¿½u", -10, 100)) == "\xe4l\0ï¿½u")
 
 checkerror("out of range", string.char, 256)
 checkerror("out of range", string.char, -1)
@@ -107,7 +107,7 @@ checkerror("out of range", string.char, math.mininteger)
 assert(string.upper("ab\0c") == "AB\0C")
 assert(string.lower("\0ABCc%$") == "\0abcc%$")
 assert(string.rep('teste', 0) == '')
-assert(string.rep('tés\00tê', 2) == 'tés\0têtés\000tê')
+assert(string.rep('tï¿½s\00tï¿½', 2) == 'tï¿½s\0tï¿½tï¿½s\000tï¿½')
 assert(string.rep('', 10) == '')
 
 do
@@ -201,8 +201,8 @@ do  -- tests for '%p' format
   end
 end
 
-local x = '"ílo"\n\\'
-assert(string.format('%q%s', x, x) == '"\\"ílo\\"\\\n\\\\""ílo"\n\\')
+local x = '"ï¿½lo"\n\\'
+assert(string.format('%q%s', x, x) == '"\\"ï¿½lo\\"\\\n\\\\""ï¿½lo"\n\\')
 assert(string.format('%q', "\0") == [["\0"]])
 assert(load(string.format('return %q', x))() == x)
 x = "\0\1\0023\5\0009"
@@ -238,7 +238,9 @@ do
   checkQ(false)
   checkQ(math.huge)
   checkQ(-math.huge)
-  assert(string.format("%q", 0/0) == "(0/0)")   -- NaN
+  if not _fixedpoint then  -- no NaN in Q16.16
+    assert(string.format("%q", 0/0) == "(0/0)")   -- NaN
+  end
   checkerror("no literal", string.format, "%q", {})
 end
 
@@ -266,6 +268,7 @@ assert(string.format("%+08d", 31501) == "+0031501")
 assert(string.format("%+08d", -30927) == "-0030927")
 
 
+if not _fixedpoint then  -- test assumes 64-bit float range
 do    -- longest number that can be formatted
   local i = 1
   local j = 10000
@@ -284,6 +287,7 @@ do    -- longest number that can be formatted
   assert(string.len(s) >= 38 + 101)
   assert(tonumber(s) == -(10^38))
 end
+end   -- not _fixedpoint
 
 
 -- testing large numbers for format
@@ -298,7 +302,7 @@ do   -- assume at least 32 bits
   assert(string.format("%o", 0xABCD) == "125715")
 
   max, min = 0x7fffffffffffffff, -0x8000000000000000
-  if max > 2.0^53 then  -- only for 64 bits
+  if max > 2.0^53 and not _fixedpoint then  -- only for 64-bit floats
     assert(string.format("%x", (2^52 | 0) - 1) == "fffffffffffff")
     assert(string.format("0x%8X", 0x8f000003) == "0x8F000003")
     assert(string.format("%d", 2^53) == "9007199254740992")
@@ -313,6 +317,7 @@ do   -- assume at least 32 bits
 end
 
 
+if not _fixedpoint then  -- Q16.16 hex format doesn't match ISO %a normalization
 do print("testing 'format %a %A'")
   local function matchhexa (n)
     local s = string.format("%a", n)
@@ -337,7 +342,7 @@ do print("testing 'format %a %A'")
     assert(string.find(string.format("%a", 0/0), "^%-?nan"))
     assert(string.find(string.format("%a", -0.0), "^%-0x0"))
   end
-  
+
   if not pcall(string.format, "%.3a", 0) then
     (Message or print)("\n >>> modifiers for format '%a' not available <<<\n")
   else
@@ -345,6 +350,7 @@ do print("testing 'format %a %A'")
     assert(string.find(string.format("%.4A", -12), "^%-0X%x%.%x000P%+?%d$"))
   end
 end
+end   -- not _fixedpoint
 
 
 -- testing some flags  (all these results are required by ISO C)
@@ -439,14 +445,14 @@ if not _port then
   end
 
   if trylocale("collate")  then
-    assert("alo" < "álo" and "álo" < "amo")
+    assert("alo" < "ï¿½lo" and "ï¿½lo" < "amo")
   end
 
   if trylocale("ctype") then
-    assert(string.gsub("áéíóú", "%a", "x") == "xxxxx")
-    assert(string.gsub("áÁéÉ", "%l", "x") == "xÁxÉ")
-    assert(string.gsub("áÁéÉ", "%u", "x") == "áxéx")
-    assert(string.upper"áÁé{xuxu}ção" == "ÁÁÉ{XUXU}ÇÃO")
+    assert(string.gsub("ï¿½ï¿½ï¿½ï¿½ï¿½", "%a", "x") == "xxxxx")
+    assert(string.gsub("ï¿½ï¿½ï¿½ï¿½", "%l", "x") == "xï¿½xï¿½")
+    assert(string.gsub("ï¿½ï¿½ï¿½ï¿½", "%u", "x") == "ï¿½xï¿½x")
+    assert(string.upper"ï¿½ï¿½ï¿½{xuxu}ï¿½ï¿½o" == "ï¿½ï¿½ï¿½{XUXU}ï¿½ï¿½O")
   end
 
   os.setlocale("C")

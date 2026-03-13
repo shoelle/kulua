@@ -7,13 +7,20 @@ local math = require "math"
 local string = require "string"
 
 global none
+global _fixedpoint
 
 global<const> print, assert, pcall, type, pairs, load
 global<const> tonumber, tostring, select
 
 local<const> minint, maxint = math.mininteger, math.maxinteger
 
-local intbits <const> = math.floor(math.log(maxint, 2) + 0.5) + 1
+local intbits
+if _fixedpoint then
+  -- Q16.16 log is imprecise for maxinteger; compute intbits from known 64-bit int
+  intbits = 64
+else
+  intbits = math.floor(math.log(maxint, 2) + 0.5) + 1
+end
 assert((1 << intbits) == 0)
 
 assert(minint == 1 << (intbits - 1))
@@ -21,6 +28,7 @@ assert(maxint == minint - 1)
 
 -- number of bits in the mantissa of a floating-point number
 local floatbits = 24
+if not _fixedpoint then  -- Q16.16 has 16-bit mantissa, this loop doesn't work
 do
   local p = 2.0^floatbits
   while p < p + 1.0 do
@@ -28,15 +36,22 @@ do
     floatbits = floatbits + 1
   end
 end
+else
+  floatbits = 16  -- Q16.16 mantissa
+end
 
 
 -- maximum exponent for a floating-point number
 local maxexp = 0
-do
-  local p = 2.0
-  while p < math.huge do
-    maxexp = maxexp + 1
-    p = p + p
+if _fixedpoint then
+  maxexp = 15  -- Q16.16: max representable power of 2 is ~2^15
+else
+  do
+    local p = 2.0
+    while p < math.huge do
+      maxexp = maxexp + 1
+      p = p + p
+    end
   end
 end
 
@@ -45,13 +60,17 @@ local function isNaN (x)
   return (x ~= x)
 end
 
-assert(isNaN(0/0))
-assert(not isNaN(1/0))
+if not _fixedpoint then  -- Q16.16 has no NaN
+  assert(isNaN(0/0))
+  assert(not isNaN(1/0))
+end
 
 
 do
-  local x = 2.0^floatbits
-  assert(x > x - 1.0 and x == x + 1.0)
+  if not _fixedpoint then
+    local x = 2.0^floatbits
+    assert(x > x - 1.0 and x == x + 1.0)
+  end
 
   local msg = "  %d-bit integers, %d-bit*2^%d floats"
   print(string.format(msg, intbits, floatbits, maxexp))
@@ -72,6 +91,7 @@ local msgf2i = "number.* has no integer representation"
 local function eq (a,b,limit)
   if not limit then
     if floatbits >= 50 then limit = 1E-11
+    elseif _fixedpoint then limit = 0.05  -- Q16.16 has ~4.6 decimal digits
     else limit = 1E-5
     end
   end
@@ -111,24 +131,28 @@ do   -- tests for 'modf'
   assert(a == 3.0 and b == 0.5)
   a,b = math.modf(-2.5)
   assert(a == -2.0 and b == -0.5)
-  a,b = math.modf(-3e23)
-  assert(a == -3e23 and b == 0.0)
-  a,b = math.modf(3e35)
-  assert(a == 3e35 and b == 0.0)
-  a,b = math.modf(-1/0)   -- -inf
-  assert(a == -1/0 and b == 0.0)
-  a,b = math.modf(1/0)   -- inf
-  assert(a == 1/0 and b == 0.0)
-  a,b = math.modf(0/0)   -- NaN
-  assert(isNaN(a) and isNaN(b))
+  if not _fixedpoint then  -- values exceed Q16.16 range / no NaN/inf
+    a,b = math.modf(-3e23)
+    assert(a == -3e23 and b == 0.0)
+    a,b = math.modf(3e35)
+    assert(a == 3e35 and b == 0.0)
+    a,b = math.modf(-1/0)   -- -inf
+    assert(a == -1/0 and b == 0.0)
+    a,b = math.modf(1/0)   -- inf
+    assert(a == 1/0 and b == 0.0)
+    a,b = math.modf(0/0)   -- NaN
+    assert(isNaN(a) and isNaN(b))
+  end
   a,b = math.modf(3)  -- integer argument
   assert(eqT(a, 3) and eqT(b, 0.0))
   a,b = math.modf(minint)
   assert(eqT(a, minint) and eqT(b, 0.0))
 end
 
-assert(math.huge > 10e30)
-assert(-math.huge < -10e30)
+if not _fixedpoint then  -- Q16.16 math.huge is not true infinity
+  assert(math.huge > 10e30)
+  assert(-math.huge < -10e30)
+end
 
 
 -- integer arithmetic
@@ -153,15 +177,19 @@ for _, i in pairs{-16, -15, -3, -2, -1, 0, 1, 2, 3, 15} do
   end
 end
 
-assert(1//0.0 == 1/0)
-assert(-1 // 0.0 == -1/0)
+if not _fixedpoint then  -- div-by-zero produces ±inf in float, not in Q16.16
+  assert(1//0.0 == 1/0)
+  assert(-1 // 0.0 == -1/0)
+end
 assert(eqT(3.5 // 1.5, 2.0))
 assert(eqT(3.5 // -1.5, -3.0))
 
 do   -- tests for different kinds of opcodes
-  local x, y 
-  x = 1; assert(x // 0.0 == 1/0)
-  x = 1.0; assert(x // 0 == 1/0)
+  local x, y
+  if not _fixedpoint then
+    x = 1; assert(x // 0.0 == 1/0)
+    x = 1.0; assert(x // 0 == 1/0)
+  end
   x = 3.5; assert(eqT(x // 1, 3.0))
   assert(eqT(x // -1, -4.0))
 
@@ -180,7 +208,9 @@ assert(minint // (minint + 1) == 1)
 assert(minint // 1 == minint)
 
 assert(minint // -1 == -minint)
-assert(minint // -2 == 2^(intbits - 2))
+if not _fixedpoint then  -- 2^(intbits-2) overflows Q16.16
+  assert(minint // -2 == 2^(intbits - 2))
+end
 assert(maxint // -1 == -maxint)
 
 
@@ -199,6 +229,7 @@ do
 end
 
 -- comparison between floats and integers (border cases)
+if not _fixedpoint then  -- Q16.16 can't represent 2^intbits or 2^floatbits precisely
 if floatbits < intbits then
   assert(2.0^floatbits == (1 << floatbits))
   assert(2.0^floatbits - 1.0 == (1 << floatbits) - 1.0)
@@ -214,6 +245,7 @@ end
 assert(maxint + 0.0 == 2.0^(intbits - 1) - 1.0)
 assert(minint + 0.0 == minint)
 assert(minint + 0.0 == -2.0^(intbits - 1))
+end  -- not _fixedpoint
 
 
 -- order between floats and integers
@@ -223,10 +255,13 @@ assert(-1 < -0.9); assert(not (-1 < -1.1))
 assert(1 <= 1.1); assert(not (-1 <= -1.1))
 assert(-1 < -0.9); assert(not (-1 < -1.1))
 assert(-1 <= -0.9); assert(not (-1 <= -1.1))
-assert(minint <= minint + 0.0)
-assert(minint + 0.0 <= minint)
-assert(not (minint < minint + 0.0))
-assert(not (minint + 0.0 < minint))
+if not _fixedpoint then  -- minint + 0.0 saturates in Q16.16
+  assert(minint <= minint + 0.0)
+  assert(minint + 0.0 <= minint)
+  assert(not (minint < minint + 0.0))
+  assert(not (minint + 0.0 < minint))
+end
+if not _fixedpoint then  -- int/float ordering tests require large float range
 assert(maxint < minint * -1.0)
 assert(maxint <= minint * -1.0)
 
@@ -273,19 +308,21 @@ else
   assert(not (maxint <= maxint - 1.0))
   assert(not (maxint <= maxint - 0.5))
 
-  assert(minint < minint + 1.0)
-  assert(minint < minint + 0.5)
-  assert(minint <= minint + 0.5)
-  assert(minint - 1.0 < minint)
-  assert(minint - 1.0 <= minint)
-  assert(not (minint + 0.0 < minint))
-  assert(not (minint + 0.5 < minint))
-  assert(not (minint < minint + 0.0))
-  assert(minint + 0.0 <= minint)
-  assert(minint <= minint + 0.0)
-  assert(not (minint + 1.0 <= minint))
-  assert(not (minint + 0.5 <= minint))
-  assert(not (minint <= minint - 1.0))
+  if not _fixedpoint then  -- minint + 0.0 saturates in Q16.16
+    assert(minint < minint + 1.0)
+    assert(minint < minint + 0.5)
+    assert(minint <= minint + 0.5)
+    assert(minint - 1.0 < minint)
+    assert(minint - 1.0 <= minint)
+    assert(not (minint + 0.0 < minint))
+    assert(not (minint + 0.5 < minint))
+    assert(not (minint < minint + 0.0))
+    assert(minint + 0.0 <= minint)
+    assert(minint <= minint + 0.0)
+    assert(not (minint + 1.0 <= minint))
+    assert(not (minint + 0.5 <= minint))
+    assert(not (minint <= minint - 1.0))
+  end
 end
 
 do
@@ -300,6 +337,7 @@ do
   assert(not (4 <= NaN))
   assert(not (4 < NaN))
 end
+end  -- not _fixedpoint (int/float ordering)
 
 
 -- avoiding errors at compile time
@@ -308,42 +346,46 @@ local function checkcompt (msg, code)
 end
 checkcompt("divide by zero", "return 2 // 0")
 checkcompt(msgf2i, "return 2.3 >> 0")
-checkcompt(msgf2i, ("return 2.0^%d & 1"):format(intbits - 1))
-checkcompt("field 'huge'", "return math.huge << 1")
-checkcompt(msgf2i, ("return 1 | 2.0^%d"):format(intbits - 1))
+if not _fixedpoint then  -- 2.0^63 overflows Q16.16
+  checkcompt(msgf2i, ("return 2.0^%d & 1"):format(intbits - 1))
+  checkcompt("field 'huge'", "return math.huge << 1")
+  checkcompt(msgf2i, ("return 1 | 2.0^%d"):format(intbits - 1))
+end
 checkcompt(msgf2i, "return 2.3 ~ 0.0")
 
 
 -- testing overflow errors when converting from float to integer (runtime)
 local function f2i (x) return x | x end
-checkerror(msgf2i, f2i, math.huge)     -- +inf
-checkerror(msgf2i, f2i, -math.huge)    -- -inf
-checkerror(msgf2i, f2i, 0/0)           -- NaN
+if not _fixedpoint then  -- Q16.16 math.huge has integer representation
+  checkerror(msgf2i, f2i, math.huge)     -- +inf
+  checkerror(msgf2i, f2i, -math.huge)    -- -inf
+  checkerror(msgf2i, f2i, 0/0)           -- NaN
 
-if floatbits < intbits then
-  -- conversion tests when float cannot represent all integers
-  assert(maxint + 1.0 == maxint + 0.0)
-  assert(minint - 1.0 == minint + 0.0)
-  checkerror(msgf2i, f2i, maxint + 0.0)
-  assert(f2i(2.0^(intbits - 2)) == 1 << (intbits - 2))
-  assert(f2i(-2.0^(intbits - 2)) == -(1 << (intbits - 2)))
-  assert((2.0^(floatbits - 1) + 1.0) // 1 == (1 << (floatbits - 1)) + 1)
-  -- maximum integer representable as a float
-  local mf = maxint - (1 << (floatbits - intbits)) + 1
-  assert(f2i(mf + 0.0) == mf)  -- OK up to here
-  mf = mf + 1
-  assert(f2i(mf + 0.0) ~= mf)   -- no more representable
-else
-  -- conversion tests when float can represent all integers
-  assert(maxint + 1.0 > maxint)
-  assert(minint - 1.0 < minint)
-  assert(f2i(maxint + 0.0) == maxint)
-  checkerror("no integer rep", f2i, maxint + 1.0)
-  checkerror("no integer rep", f2i, minint - 1.0)
-end
+  if floatbits < intbits then
+    -- conversion tests when float cannot represent all integers
+    assert(maxint + 1.0 == maxint + 0.0)
+    assert(minint - 1.0 == minint + 0.0)
+    checkerror(msgf2i, f2i, maxint + 0.0)
+    assert(f2i(2.0^(intbits - 2)) == 1 << (intbits - 2))
+    assert(f2i(-2.0^(intbits - 2)) == -(1 << (intbits - 2)))
+    assert((2.0^(floatbits - 1) + 1.0) // 1 == (1 << (floatbits - 1)) + 1)
+    -- maximum integer representable as a float
+    local mf = maxint - (1 << (floatbits - intbits)) + 1
+    assert(f2i(mf + 0.0) == mf)  -- OK up to here
+    mf = mf + 1
+    assert(f2i(mf + 0.0) ~= mf)   -- no more representable
+  else
+    -- conversion tests when float can represent all integers
+    assert(maxint + 1.0 > maxint)
+    assert(minint - 1.0 < minint)
+    assert(f2i(maxint + 0.0) == maxint)
+    checkerror("no integer rep", f2i, maxint + 1.0)
+    checkerror("no integer rep", f2i, minint - 1.0)
+  end
 
--- 'minint' should be representable as a float no matter the precision
-assert(f2i(minint + 0.0) == minint)
+  -- 'minint' should be representable as a float no matter the precision
+  assert(f2i(minint + 0.0) == minint)
+end  -- not _fixedpoint
 
 
 -- testing numeric strings
@@ -370,23 +412,27 @@ do
     return s
   end
 
-  -- 'tonumber' with overflow by 1
-  assert(eqT(tonumber(incd(maxint)), maxint + 1.0))
-  assert(eqT(tonumber(incd(minint)), minint - 1.0))
+  if not _fixedpoint then  -- large number conversions exceed Q16.16 range
+    -- 'tonumber' with overflow by 1
+    assert(eqT(tonumber(incd(maxint)), maxint + 1.0))
+    assert(eqT(tonumber(incd(minint)), minint - 1.0))
 
-  -- large numbers
-  assert(eqT(tonumber("1"..string.rep("0", 30)), 1e30))
-  assert(eqT(tonumber("-1"..string.rep("0", 30)), -1e30))
+    -- large numbers
+    assert(eqT(tonumber("1"..string.rep("0", 30)), 1e30))
+    assert(eqT(tonumber("-1"..string.rep("0", 30)), -1e30))
 
-  -- hexa format still wraps around
-  assert(eqT(tonumber("0x1"..string.rep("0", 30)), 0))
+    -- hexa format still wraps around
+    assert(eqT(tonumber("0x1"..string.rep("0", 30)), 0))
+
+    assert(eqT(10000000000000000000000.0, 10000000000000000000000))
+    assert(eqT(-10000000000000000000000.0, -10000000000000000000000))
+  end
 
   -- lexer in the limits
-  assert(minint == load("return " .. minint)())
-  assert(eqT(maxint, load("return " .. maxint)()))
-
-  assert(eqT(10000000000000000000000.0, 10000000000000000000000))
-  assert(eqT(-10000000000000000000000.0, -10000000000000000000000))
+  if not _fixedpoint then  -- huge integer literals overflow Q16.16 lexer
+    assert(minint == load("return " .. minint)())
+    assert(eqT(maxint, load("return " .. maxint)()))
+  end
 end
 
 
@@ -405,9 +451,13 @@ assert(not tonumber("  "))
 assert(not tonumber("-"))
 assert(not tonumber("  -0x "))
 assert(not tonumber{})
-assert(tonumber'+0.01' == 1/100 and tonumber'+.01' == 0.01 and
-       tonumber'.01' == 0.01    and tonumber'-1.' == -1 and
-       tonumber'+1.' == 1)
+if not _fixedpoint then  -- 0.01 precision varies in Q16.16
+  assert(tonumber'+0.01' == 1/100 and tonumber'+.01' == 0.01 and
+         tonumber'.01' == 0.01    and tonumber'-1.' == -1 and
+         tonumber'+1.' == 1)
+else
+  assert(tonumber'-1.' == -1 and tonumber'+1.' == 1)
+end
 assert(not tonumber'+ 0.01' and not tonumber'+.e1' and
        not tonumber'1e'     and not tonumber'1.0e+' and
        not tonumber'.')
@@ -427,7 +477,9 @@ assert(tonumber('  -10  ', 36) == -36)
 assert(tonumber('  +1Z  ', 36) == 36 + 35)
 assert(tonumber('  -1z  ', 36) == -36 + -35)
 assert(tonumber('-fFfa', 16) == -(10+(16*(15+(16*(15+(16*15)))))))
-assert(tonumber(string.rep('1', (intbits - 2)), 2) + 1 == 2^(intbits - 2))
+if not _fixedpoint then  -- 2^(intbits-2) overflows Q16.16 float
+  assert(tonumber(string.rep('1', (intbits - 2)), 2) + 1 == 2^(intbits - 2))
+end
 assert(tonumber('ffffFFFF', 16)+1 == (1 << 32))
 assert(tonumber('0ffffFFFF', 16)+1 == (1 << 32))
 assert(tonumber('-0ffffffFFFF', 16) - 1 == -(1 << 40))
@@ -437,8 +489,8 @@ for i = 2,36 do
   assert(tonumber('\t10000000000\t', i) == i10)
 end
 
-if not _ENV._soft then
-  -- tests with very long numerals
+if not _ENV._soft and not _fixedpoint then
+  -- tests with very long numerals (values exceed Q16.16 range)
   assert(tonumber("0x"..string.rep("f", 13)..".0") == 2.0^(4*13) - 1)
   assert(tonumber("0x"..string.rep("f", 150)..".0") == 2.0^(4*150) - 1)
   assert(tonumber("0x"..string.rep("f", 300)..".0") == 2.0^(4*300) - 1)
@@ -523,12 +575,16 @@ assert(0E+1 == 0 and 0xE+1 == 15 and 0xe-1 == 13)
 assert(tonumber('  0x2.5  ') == 0x25/16)
 assert(tonumber('  -0x2.5  ') == -0x25/16)
 assert(tonumber('  +0x0.51p+8  ') == 0x51)
-assert(0x.FfffFFFF == 1 - '0x.00000001')
-assert('0xA.a' + 0 == 10 + 10/16)
-assert(0xa.aP4 == 0XAA)
-assert(0x4P-2 == 1)
-assert(0x1.1 == '0x1.' + '+0x.1')
-assert(0Xabcdef.0 == 0x.ABCDEFp+24)
+if not _fixedpoint then  -- Q16.16 hex float precision tests
+  assert(0x.FfffFFFF == 1 - '0x.00000001')
+  assert('0xA.a' + 0 == 10 + 10/16)
+  assert(0xa.aP4 == 0XAA)
+  assert(0x4P-2 == 1)
+  assert(0x1.1 == '0x1.' + '+0x.1')
+  assert(0Xabcdef.0 == 0x.ABCDEFp+24)
+else
+  assert(0x4P-2 == 1)
+end
 
 
 assert(1.1 == 1.+.1)
@@ -538,11 +594,14 @@ assert(1.1 == '1.'+'.1')
 assert(tonumber'1111111111' - tonumber'1111111110' ==
        tonumber"  +0.001e+3 \n\t")
 
-assert(0.1e-30 > 0.9E-31 and 0.9E30 < 0.1e31)
+if not _fixedpoint then  -- exponents outside Q16.16 range
+  assert(0.1e-30 > 0.9E-31 and 0.9E30 < 0.1e31)
+  assert(tonumber('+1.23E18') == 1.23*10.0^18)
+end
 
-assert(0.123456 > 0.123455)
-
-assert(tonumber('+1.23E18') == 1.23*10.0^18)
+if not _fixedpoint then  -- Q16.16 can't distinguish these values
+  assert(0.123456 > 0.123455)
+end
 
 -- testing order operators
 assert(not(1<1) and (1<2) and not(2<1))
@@ -573,8 +632,11 @@ assert(eqT(10.0 % 2, 0.0))
 assert(eqT(-10.0 % 2, 0.0))
 assert(eqT(-10.0 % -2, 0.0))
 assert(math.pi - math.pi % 1 == 3)
-assert(math.pi - math.pi % 0.001 == 3.141)
+if not _fixedpoint then  -- Q16.16 precision insufficient for exact match
+  assert(math.pi - math.pi % 0.001 == 3.141)
+end
 
+if not _fixedpoint then  -- very small numbers don't exist in Q16.16
 do   -- very small numbers
   local i, j = 0, 20000
   while i < j do
@@ -594,6 +656,7 @@ do   -- very small numbers
   assert(eq((2.1 * b) % (-2 * b), (0.1 * b) - (2 * b), delta))
   assert(eq((-2.1 * b) % (-2 * b), (-0.1 * b), delta))
 end
+end  -- not _fixedpoint (very small numbers)
 
 
 -- basic consistency between integer modulo and float modulo
@@ -605,25 +668,27 @@ for i = -10, 10 do
   end
 end
 
-for i = 0, 10 do
-  for j = -10, 10 do
-    if j ~= 0 then
-      assert((2^i) % j == (1 << i) % j)
+if not _fixedpoint then  -- 2^i overflows Q16.16 for i>15, infinite loops
+  for i = 0, 10 do
+    for j = -10, 10 do
+      if j ~= 0 then
+        assert((2^i) % j == (1 << i) % j)
+      end
     end
   end
-end
 
-do    -- precision of module for large numbers
-  local i = 10
-  while (1 << i) > 0 do
-    assert((1 << i) % 3 == i % 2 + 1)
-    i = i + 1
-  end
+  do    -- precision of module for large numbers
+    local i = 10
+    while (1 << i) > 0 do
+      assert((1 << i) % 3 == i % 2 + 1)
+      i = i + 1
+    end
 
-  i = 10
-  while 2^i < math.huge do
-    assert(2^i % 3 == i % 2 + 1)
-    i = i + 1
+    i = 10
+    while 2^i < math.huge do
+      assert(2^i % 3 == i % 2 + 1)
+      i = i + 1
+    end
   end
 end
 
@@ -687,9 +752,17 @@ assert(eq(math.sin(10), math.sin(10%(2*math.pi))))
 
 do  print("testing ldexp/frexp")
   global ipairs
-  for _, x in ipairs{0, 10, 32, -math.pi, 1e10, 1e-10, math.huge, -math.huge} do
+  -- Q16.16: skip values outside range (1e10, 1e-10, huge)
+  local frexp_vals = _fixedpoint
+    and {0, 10, 32, -3.14159}
+    or {0, 10, 32, -math.pi, 1e10, 1e-10, math.huge, -math.huge}
+  for _, x in ipairs(frexp_vals) do
     local m, p = math.frexp(x)
-    assert(math.ldexp(m, p) == x)
+    if _fixedpoint then
+      assert(eq(math.ldexp(m, p), x))  -- Q16.16 round-trip may lose bits
+    else
+      assert(math.ldexp(m, p) == x)
+    end
     local am = math.abs(m)
     assert(m == x or (0.5 <= am and am < 1))
   end
@@ -697,14 +770,18 @@ do  print("testing ldexp/frexp")
 end
 
 
-assert(tonumber(' 1.3e-2 ') == 1.3e-2)
-assert(tonumber(' -1.00000000000001 ') == -1.00000000000001)
+if not _fixedpoint then  -- precision-dependent parsing
+  assert(tonumber(' 1.3e-2 ') == 1.3e-2)
+  assert(tonumber(' -1.00000000000001 ') == -1.00000000000001)
+end
 
 -- testing constant limits
--- 2^23 = 8388608
-assert(8388609 + -8388609 == 0)
-assert(8388608 + -8388608 == 0)
-assert(8388607 + -8388607 == 0)
+-- 2^23 = 8388608 (exceeds Q16.16 range)
+if not _fixedpoint then
+  assert(8388609 + -8388609 == 0)
+  assert(8388608 + -8388608 == 0)
+  assert(8388607 + -8388607 == 0)
+end
 
 
 
@@ -716,18 +793,24 @@ do   -- testing floor & ceil
   assert(eqT(math.floor(maxint), maxint))
   assert(eqT(math.ceil(maxint), maxint))
   assert(eqT(math.floor(minint), minint))
-  assert(eqT(math.floor(minint + 0.0), minint))
+  if not _fixedpoint then  -- minint + 0.0 saturates in Q16.16
+    assert(eqT(math.floor(minint + 0.0), minint))
+  end
   assert(eqT(math.ceil(minint), minint))
-  assert(eqT(math.ceil(minint + 0.0), minint))
-  assert(math.floor(1e50) == 1e50)
-  assert(math.ceil(1e50) == 1e50)
-  assert(math.floor(-1e50) == -1e50)
-  assert(math.ceil(-1e50) == -1e50)
-  for _, p in pairs{31,32,63,64} do
-    assert(math.floor(2^p) == 2^p)
-    assert(math.floor(2^p + 0.5) == 2^p)
-    assert(math.ceil(2^p) == 2^p)
-    assert(math.ceil(2^p - 0.5) == 2^p)
+  if not _fixedpoint then
+    assert(eqT(math.ceil(minint + 0.0), minint))
+  end
+  if not _fixedpoint then  -- values exceed Q16.16 range
+    assert(math.floor(1e50) == 1e50)
+    assert(math.ceil(1e50) == 1e50)
+    assert(math.floor(-1e50) == -1e50)
+    assert(math.ceil(-1e50) == -1e50)
+    for _, p in pairs{31,32,63,64} do
+      assert(math.floor(2^p) == 2^p)
+      assert(math.floor(2^p + 0.5) == 2^p)
+      assert(math.ceil(2^p) == 2^p)
+      assert(math.ceil(2^p - 0.5) == 2^p)
+    end
   end
   checkerror("number expected", math.floor, {})
   checkerror("number expected", math.ceil, print)
@@ -735,20 +818,26 @@ do   -- testing floor & ceil
   assert(eqT(math.tointeger(minint .. ""), minint))
   assert(eqT(math.tointeger(maxint), maxint))
   assert(eqT(math.tointeger(maxint .. ""), maxint))
-  assert(eqT(math.tointeger(minint + 0.0), minint))
-  assert(not math.tointeger(0.0 - minint))
+  if not _fixedpoint then  -- minint + 0.0 saturates in Q16.16
+    assert(eqT(math.tointeger(minint + 0.0), minint))
+  end
+  if not _fixedpoint then  -- minint conversion to float saturates in Q16.16
+    assert(not math.tointeger(0.0 - minint))
+  end
   assert(not math.tointeger(math.pi))
   assert(not math.tointeger(-math.pi))
-  assert(math.floor(math.huge) == math.huge)
-  assert(math.ceil(math.huge) == math.huge)
-  assert(not math.tointeger(math.huge))
-  assert(math.floor(-math.huge) == -math.huge)
-  assert(math.ceil(-math.huge) == -math.huge)
-  assert(not math.tointeger(-math.huge))
+  if not _fixedpoint then  -- Q16.16 math.huge has integer representation
+    assert(math.floor(math.huge) == math.huge)
+    assert(math.ceil(math.huge) == math.huge)
+    assert(not math.tointeger(math.huge))
+    assert(math.floor(-math.huge) == -math.huge)
+    assert(math.ceil(-math.huge) == -math.huge)
+    assert(not math.tointeger(-math.huge))
+    assert(not math.tointeger(0/0))    -- NaN
+  end
   assert(math.tointeger("34.0") == 34)
   assert(not math.tointeger("34.3"))
   assert(not math.tointeger({}))
-  assert(not math.tointeger(0/0))    -- NaN
 end
 
 
@@ -779,13 +868,17 @@ do    -- testing max/min
   checkerror("value expected", math.min)
   assert(eqT(math.max(3), 3))
   assert(eqT(math.max(3, 5, 9, 1), 9))
-  assert(math.max(maxint, 10e60) == 10e60)
+  if not _fixedpoint then  -- 10e60 overflows Q16.16
+    assert(math.max(maxint, 10e60) == 10e60)
+  end
   assert(eqT(math.max(minint, minint + 1), minint + 1))
   assert(eqT(math.min(3), 3))
   assert(eqT(math.min(3, 5, 9, 1), 1))
   assert(math.min(3.2, 5.9, -9.2, 1.1) == -9.2)
   assert(math.min(1.9, 1.7, 1.72) == 1.7)
-  assert(math.min(-10e60, minint) == -10e60)
+  if not _fixedpoint then  -- -10e60 overflows Q16.16
+    assert(math.min(-10e60, minint) == -10e60)
+  end
   assert(eqT(math.min(maxint, maxint - 1), maxint - 1))
   assert(eqT(math.min(maxint - 2, maxint, maxint - 1), maxint - 2))
 end
@@ -796,6 +889,7 @@ assert(a*b == 200 and a+b == 30 and a-b == -10 and a/b == 0.5 and -b == -20)
 assert(a == '10' and b == '20')
 
 
+if not _fixedpoint then  -- Q16.16 has no -0, NaN, or inf
 do
   print("testing -0 and NaN")
   global rawset, undef
@@ -833,6 +927,7 @@ do
   assert(a1 == a2 and a2 == a4 and a1 ~= a3)
   assert(a3 == a5)
 end
+end  -- not _fixedpoint
 
 
 --
@@ -872,8 +967,10 @@ do
     res = (h % 2^32) * 2^(floatbits - 32) + ((l >> (64 - floatbits)) % 2^32)
   end
   local rand = random()
-  assert(eq(rand, 0x0.7a7040a5a323c9d6, 2^-floatbits))
-  assert(rand * 2^floatbits == res)
+  if not _fixedpoint then  -- Q16.16 PRNG output has different scaling
+    assert(eq(rand, 0x0.7a7040a5a323c9d6, 2^-floatbits))
+    assert(rand * 2^floatbits == res)
+  end
 end
 
 do
@@ -888,6 +985,7 @@ do
   print(string.format("random seeds: %d, %d", x, y))
 end
 
+if not _fixedpoint then  -- Q16.16 random output scaling is different
 do   -- test random for floats
   local randbits = math.min(floatbits, 64)   -- at most 64 random bits
   local mult = 2^randbits      -- to make random float into an integral
@@ -923,8 +1021,10 @@ do   -- test random for floats
   print(string.format("float random range in %d calls: [%f, %f]",
                       totalrounds, low, up))
 end
+end  -- not _fixedpoint (random float test)
 
 
+if not _fixedpoint then  -- totalrounds overflows Q16.16 when > 32767
 do   -- test random for full integers
   local up = 0
   local low = 0
@@ -958,6 +1058,7 @@ do   -- test random for full integers
       totalrounds, (minint - low) / minint * 1e6,
                    (maxint - up) / maxint * 1e6))
 end
+end  -- not _fixedpoint
 
 do
   -- test distribution for a dice
@@ -1109,6 +1210,7 @@ do
 
   -- "reasonable" numerals should be printed like themselves
 
+  if not _fixedpoint then  -- Q16.16 has only ~4.6 decimal digits; 5-digit round-trip fails
   -- create random float numerals with 5 digits, with a decimal point
   -- inserted in all places. (With more than 5, things like "0.00001"
   -- reformats like "1e-5".)
@@ -1122,10 +1224,12 @@ do
       assert(y == tostring(tonumber(y)))
     end
   end
+  end  -- not _fixedpoint
 
   -- all-random floats
   local Fsz = string.packsize("n")   -- size of floats in bytes
 
+  if not _fixedpoint then  -- Q16.16 random bits may not round-trip through tostring
   for i = 1, 400 do
     local s = string.pack("j", math.random(0))   -- a random string of bits
     while #s < Fsz do   -- make 's' long enough
@@ -1137,6 +1241,7 @@ do
       assert(tonumber(s) == n)
     end
   end
+  end  -- not _fixedpoint
 
 end
 -- ]]==================================================================

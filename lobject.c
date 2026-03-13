@@ -445,7 +445,7 @@ static int tostringbuffFloat (lua_Number n, char *buff) {
   len += snprintf(buff + len, (size_t)(LUA_N2SBUFFSZ - len), "%d", (int)ipart);
   if (fpart != 0) {
     /* Convert fractional part: fpart/65536 as up to 5 decimal digits */
-    uint32_t f = ((uint32_t)fpart * 100000u + 32768u) / 65536u;
+    uint32_t f = (uint32_t)(((uint64_t)fpart * 100000u + 32768u) / 65536u);
     /* Remove trailing zeros */
     int ndigits = 5;
     while (ndigits > 1 && f % 10 == 0) { f /= 10; ndigits--; }

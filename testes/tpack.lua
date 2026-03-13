@@ -184,7 +184,11 @@ for _, n in ipairs{0, -1.1, 1.9, 1/0, -1/0, 1e20, -1e20, 0.1, 2000.7} do
 end
 
 -- for non-native precisions, test only with "round" numbers
-for _, n in ipairs{0, -1.5, 1/0, -1/0, 1e10, -1e9, 0.5, 2000.25} do
+-- Q16.16: skip inf and values outside range
+local packtest_vals = _fixedpoint
+    and {0, -1.5, 0.5, 2000.25}
+    or {0, -1.5, 1/0, -1/0, 1e10, -1e9, 0.5, 2000.25}
+for _, n in ipairs(packtest_vals) do
   assert(unpack("<f", pack("<f", n)) == n)
   assert(unpack(">f", pack(">f", n)) == n)
   assert(unpack("<d", pack("<d", n)) == n)

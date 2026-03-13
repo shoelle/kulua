@@ -189,7 +189,7 @@ static int os_getenv (lua_State *L) {
 static int os_clock (lua_State *L) {
 #if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
   /* clock()/CLOCKS_PER_SEC as Q16.16: (clock * 65536) / CLOCKS_PER_SEC */
-  lua_pushnumber(L, (lua_Number)(((int64_t)clock() << 16) / CLOCKS_PER_SEC));
+  lua_pushnumber(L, (lua_Number)(((int64_t)clock() * 65536LL) / CLOCKS_PER_SEC));
 #else
   lua_pushnumber(L, ((lua_Number)clock())/(lua_Number)CLOCKS_PER_SEC);
 #endif

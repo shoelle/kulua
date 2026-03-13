@@ -1664,7 +1664,11 @@ static int str_pack (lua_State *L) {
         break;
       }
       case Kfloat: {  /* C float */
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+        float f = (float)luaL_checknumber(L, arg) / 65536.0f;
+#else
         float f = (float)luaL_checknumber(L, arg);  /* get argument */
+#endif
         char *buff = luaL_prepbuffsize(&b, sizeof(f));
         /* move 'f' to final result, correcting endianness if needed */
         copywithendian(buff, (char *)&f, sizeof(f), h.islittle);
@@ -1680,7 +1684,11 @@ static int str_pack (lua_State *L) {
         break;
       }
       case Kdouble: {  /* C double */
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+        double f = (double)luaL_checknumber(L, arg) / 65536.0;
+#else
         double f = (double)luaL_checknumber(L, arg);  /* get argument */
+#endif
         char *buff = luaL_prepbuffsize(&b, sizeof(f));
         /* move 'f' to final result, correcting endianness if needed */
         copywithendian(buff, (char *)&f, sizeof(f), h.islittle);
@@ -1818,7 +1826,12 @@ static int str_unpack (lua_State *L) {
         float f;
         copywithendian((char *)&f, data + pos, sizeof(f), h.islittle);
 #if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
-        lua_pushnumber(L, (lua_Number)(f * 65536.0f));
+        {  /* convert float to Q16.16 with saturation */
+          double d = (double)f * 65536.0;
+          if (d > (double)0x7FFFFFFF) lua_pushnumber(L, (lua_Number)0x7FFFFFFF);
+          else if (d < (double)(int32_t)0x80000000) lua_pushnumber(L, (lua_Number)(int32_t)0x80000000);
+          else lua_pushnumber(L, (lua_Number)(int32_t)d);
+        }
 #else
         lua_pushnumber(L, (lua_Number)f);
 #endif
@@ -1834,7 +1847,12 @@ static int str_unpack (lua_State *L) {
         double f;
         copywithendian((char *)&f, data + pos, sizeof(f), h.islittle);
 #if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
-        lua_pushnumber(L, (lua_Number)(f * 65536.0));
+        {  /* convert double to Q16.16 with saturation */
+          double d = f * 65536.0;
+          if (d > (double)0x7FFFFFFF) lua_pushnumber(L, (lua_Number)0x7FFFFFFF);
+          else if (d < (double)(int32_t)0x80000000) lua_pushnumber(L, (lua_Number)(int32_t)0x80000000);
+          else lua_pushnumber(L, (lua_Number)(int32_t)d);
+        }
 #else
         lua_pushnumber(L, (lua_Number)f);
 #endif

@@ -31,8 +31,11 @@
 */
 int32_t kulua_str2number (const char *s, char **endptr) {
   int neg = 0;
-  int32_t ipart = 0;
-  uint32_t frac = 0;
+  int64_t mantissa = 0;  /* integer mantissa (no decimal point) */
+  int nfracdigits = 0;   /* how many digits were after '.' */
+  int has_dot = 0;
+  int mant_digits = 0;   /* digits stored in mantissa */
+  int extra_idigits = 0; /* integer digits skipped (beyond limit) */
   const char *start = s;
 
   /* skip leading whitespace */
@@ -45,82 +48,99 @@ int32_t kulua_str2number (const char *s, char **endptr) {
   else if (*s == '+') { s++; }
 
   /* must start with digit or '.' followed by digit */
-  if (!isdigit((unsigned char)*s) && !(*s == '.' && isdigit((unsigned char)s[1]))) {
+  if (!isdigit((unsigned char)*s) &&
+      !(*s == '.' && isdigit((unsigned char)s[1]))) {
     if (endptr) *endptr = (char *)start;
     return 0;
   }
 
-  /* integer part */
-  while (isdigit((unsigned char)*s)) {
-    ipart = ipart * 10 + (*s - '0');
-    if (ipart > 32767) {
-      /* overflow: consume rest of digits and return max */
-      while (isdigit((unsigned char)*s)) s++;
-      if (*s == '.') { s++; while (isdigit((unsigned char)*s)) s++; }
-      if (*s == 'e' || *s == 'E') {
-        s++;
-        if (*s == '+' || *s == '-') s++;
-        while (isdigit((unsigned char)*s)) s++;
-      }
-      if (endptr) *endptr = (char *)s;
-      return neg ? (int32_t)0x80000000 : (int32_t)0x7FFFFFFF;
-    }
-    s++;
-  }
-
-  /* fractional part */
-  if (*s == '.') {
-    s++;
-    /* Parse up to 5 fractional digits for precision */
-    uint32_t frac_num = 0;
-    uint32_t frac_den = 1;
-    int ndigits = 0;
-    while (isdigit((unsigned char)*s) && ndigits < 9) {
-      frac_num = frac_num * 10 + (uint32_t)(*s - '0');
-      frac_den *= 10;
-      ndigits++;
+  /* Parse all digits, tracking decimal point position.
+  ** Mantissa holds up to 12 significant digits to avoid int64 overflow
+  ** when multiplied by 65536 later (12 digits * 65536 < 2^63). */
+  while (isdigit((unsigned char)*s) || (*s == '.' && !has_dot)) {
+    if (*s == '.') {
+      has_dot = 1;
       s++;
+      continue;
     }
-    /* skip remaining fractional digits */
-    while (isdigit((unsigned char)*s)) s++;
-    /* convert to Q16.16: frac_num / frac_den * 65536 */
-    frac = (uint32_t)((uint64_t)frac_num * 65536 / frac_den);
+    if (mant_digits < 12) {
+      mantissa = mantissa * 10 + (*s - '0');
+      mant_digits++;
+      if (has_dot) nfracdigits++;
+    } else {
+      /* excess digit beyond precision */
+      if (!has_dot) extra_idigits++;
+      /* excess fractional digits are just lost (too low precision) */
+    }
+    s++;
   }
 
-  /* combine integer and fractional parts */
-  int32_t result = ((int32_t)ipart << 16) | (int32_t)frac;
-
-  /* handle exponent */
+  /* parse exponent */
+  int exp = 0;
   if (*s == 'e' || *s == 'E') {
+    const char *sexp = s;  /* save position before 'e' */
     s++;
     int eneg = 0;
-    int exp = 0;
     if (*s == '-') { eneg = 1; s++; }
     else if (*s == '+') { s++; }
-    while (isdigit((unsigned char)*s)) {
-      exp = exp * 10 + (*s - '0');
-      s++;
-    }
-    /* apply exponent: multiply/divide by powers of 10 */
-    if (eneg) {
-      for (int j = 0; j < exp && result != 0; j++) {
-        result = (int32_t)(((int64_t)result << 16) / ((int64_t)10 << 16));
-      }
+    if (!isdigit((unsigned char)*s)) {
+      /* 'e' without digits: not part of the number */
+      s = sexp;
     } else {
-      for (int j = 0; j < exp; j++) {
-        int64_t tmp = (int64_t)result * 10;
-        if (tmp > INT32_MAX || tmp < INT32_MIN) {
-          result = neg ? (int32_t)0x80000000 : (int32_t)0x7FFFFFFF;
-          break;
+      while (isdigit((unsigned char)*s)) {
+        exp = exp * 10 + (*s - '0');
+        if (exp > 100) {
+          /* huge exponent — consume rest and return saturated/zero */
+          while (isdigit((unsigned char)*s)) s++;
+          if (endptr) *endptr = (char *)s;
+          if (eneg) return 0;
+          return neg ? (int32_t)0x80000000 : (int32_t)0x7FFFFFFF;
         }
-        result = (int32_t)tmp;
+        s++;
       }
+      if (eneg) exp = -exp;
     }
   }
 
-  if (neg) result = -result;
+  if (mantissa == 0) {
+    if (endptr) *endptr = (char *)s;
+    return 0;
+  }
+
+  /* The value is: mantissa * 10^(exp + extra_idigits - nfracdigits)
+  ** Convert to Q16.16: mantissa * 65536 * 10^net_exp */
+  int net_exp = exp + extra_idigits - nfracdigits;
+  int64_t result = mantissa * 65536LL;
+
+  if (net_exp > 0) {
+    for (int j = 0; j < net_exp; j++) {
+      result *= 10;
+      if (result > (int64_t)0x7FFFFFFF) {
+        if (endptr) *endptr = (char *)s;
+        return neg ? (int32_t)0x80000000 : (int32_t)0x7FFFFFFF;
+      }
+    }
+  } else if (net_exp < 0) {
+    int abs_exp = -net_exp;
+    if (abs_exp > 18) {
+      result = 0;  /* too small for Q16.16 */
+    } else {
+      int64_t divisor = 1;
+      for (int j = 0; j < abs_exp; j++) divisor *= 10;
+      result = (result + divisor / 2) / divisor;  /* round to nearest */
+    }
+  }
+
+  /* clamp to Q16.16 range */
+  if (result > (int64_t)0x7FFFFFFF) {
+    if (endptr) *endptr = (char *)s;
+    return neg ? (int32_t)0x80000000 : (int32_t)0x7FFFFFFF;
+  }
+
+  int32_t r = (int32_t)result;
+  if (neg) r = -r;
   if (endptr) *endptr = (char *)s;
-  return result;
+  return r;
 }
 
 
@@ -162,8 +182,11 @@ int32_t kulua_strx2number (const char *s, char **endptr) {
 
   /* integer part (goes into bits 16..31 of Q16.16) */
   int32_t ipart = 0;
+  int overflow = 0;
   while (hexdigit(*s) >= 0) {
-    ipart = (ipart << 4) | hexdigit(*s);
+    if (ipart > 0x7FF) overflow = 1;  /* would exceed 16-bit int part */
+    if (!overflow)
+      ipart = (ipart << 4) | hexdigit(*s);
     any = 1;
     s++;
   }
@@ -188,23 +211,45 @@ int32_t kulua_strx2number (const char *s, char **endptr) {
     return 0;
   }
 
+  if (overflow) {
+    /* consume remaining parts (fractional, exponent) and return max */
+    if (*s == 'p' || *s == 'P') {
+      const char *sp = s;
+      s++;
+      if (*s == '-' || *s == '+') s++;
+      if (!isdigit((unsigned char)*s)) {
+        s = sp;  /* 'p' without digits: not part of the number */
+      } else {
+        while (isdigit((unsigned char)*s)) s++;
+      }
+    }
+    if (endptr) *endptr = (char *)s;
+    return neg ? (int32_t)0x80000000 : (int32_t)0x7FFFFFFF;
+  }
+
   result = (ipart << 16) | (int32_t)frac;
 
   /* binary exponent p[+-]exp */
   if (*s == 'p' || *s == 'P') {
+    const char *sp = s;  /* save position before 'p' */
     s++;
     int eneg = 0;
     int exp = 0;
     if (*s == '-') { eneg = 1; s++; }
     else if (*s == '+') { s++; }
-    while (isdigit((unsigned char)*s)) {
-      exp = exp * 10 + (*s - '0');
-      s++;
+    if (!isdigit((unsigned char)*s)) {
+      /* 'p' without digits: not part of the number */
+      s = sp;
+    } else {
+      while (isdigit((unsigned char)*s)) {
+        exp = exp * 10 + (*s - '0');
+        s++;
+      }
+      if (eneg)
+        result >>= exp;
+      else
+        result = (int32_t)((uint32_t)result << exp);  /* unsigned to avoid UB */
     }
-    if (eneg)
-      result >>= exp;
-    else
-      result <<= exp;
   }
 
   if (neg) result = -result;
@@ -227,7 +272,7 @@ int kulua_number2strx (lua_State *L, char *buff, unsigned sz,
   /* detect uppercase from format string */
   if (strchr(fmt, 'A') != NULL) upper = 1;
 
-  if (n < 0) { neg = 1; n = -n; }
+  if (n < 0) { neg = 1; n = (n == (int32_t)0x80000000) ? n : -n; }
   if (n < 0) {  /* INT32_MIN edge case */
     len = snprintf(buff, sz, "%s0x8000.0000p0", neg ? "-" : "");
     if (upper) { for (int i = 0; buff[i]; i++) buff[i] = (char)toupper(buff[i]); }
@@ -402,7 +447,7 @@ int32_t kulua_tan (int32_t x) {
   int32_t c = kulua_cos(x);
   if (c == 0) return (kulua_sin(x) >= 0) ? (int32_t)0x7FFFFFFF
                                           : (int32_t)0x80000001;
-  return (int32_t)(((int64_t)kulua_sin(x) << 16) / (int64_t)c);
+  return (int32_t)(((int64_t)kulua_sin(x) * 65536LL) / (int64_t)c);
 }
 
 
@@ -516,22 +561,30 @@ int32_t kulua_sqrt (int32_t x) {
 ** =================================================================== */
 
 int32_t kulua_fabs (int32_t x) {
+  /* INT32_MIN: -(-2147483648) is UB, just return INT32_MAX */
+  if (x == (int32_t)0x80000000) return (int32_t)0x7FFFFFFF;
   return (x < 0) ? -x : x;
 }
 
 int32_t kulua_ceil (int32_t x) {
   if (x >= 0)
     return (x + 0xFFFF) & ~0xFFFF;
-  else
-    return x & ~0xFFFF;
+  else {
+    /* For negative: truncate toward zero (round toward +inf) */
+    return (x & 0xFFFF) ? (x & ~0xFFFF) + 0x10000 : x;
+  }
 }
 
 int32_t kulua_fmod (int32_t a, int32_t b) {
   if (b == 0) return 0;
-  /* Use Q16.16 division: (a << 16) / b gives Q16.16 quotient,
-  ** truncate to get integer quotient, multiply back */
-  int32_t q = (int32_t)(((int64_t)a << 16) / (int64_t)b);
-  q = q & ~0xFFFF;  /* truncate to integer (toward zero) */
+  /* Use Q16.16 division: (a * 65536) / b gives Q16.16 quotient,
+  ** truncate to integer (toward zero), multiply back and subtract */
+  int32_t q = (int32_t)(((int64_t)a * 65536LL) / (int64_t)b);
+  /* truncate toward zero (not floor) */
+  if (q >= 0)
+    q = q & ~0xFFFF;
+  else
+    q = (q & 0xFFFF) ? (q & ~0xFFFF) + 0x10000 : q;
   int32_t m = a - (int32_t)(((int64_t)q * b) >> 16);
   return m;
 }
@@ -546,7 +599,7 @@ int32_t kulua_exp (int32_t x) {
   int32_t term = one;
   int32_t sum = one;
   for (int i = 1; i <= 8; i++) {
-    term = (int32_t)(((int64_t)term * x) / ((int64_t)i << 16));
+    term = (int32_t)(((int64_t)term * x) / ((int64_t)i * 65536LL));
     sum += term;
     if (term == 0) break;
   }
@@ -589,7 +642,7 @@ int32_t kulua_log2 (int32_t x) {
   int32_t ln2 = 45426;  /* ln(2) in Q16.16 */
   int32_t lnx = kulua_log(x);
   if (ln2 == 0) return 0;
-  return (int32_t)(((int64_t)lnx << 16) / (int64_t)ln2);
+  return (int32_t)(((int64_t)lnx * 65536LL) / (int64_t)ln2);
 }
 
 
@@ -597,14 +650,17 @@ int32_t kulua_log10 (int32_t x) {
   int32_t ln10 = 150902;  /* ln(10) in Q16.16 = 2.3026... * 65536 */
   int32_t lnx = kulua_log(x);
   if (ln10 == 0) return 0;
-  return (int32_t)(((int64_t)lnx << 16) / (int64_t)ln10);
+  return (int32_t)(((int64_t)lnx * 65536LL) / (int64_t)ln10);
 }
 
 
 /* ldexp: multiply by 2^e (shift the Q16.16 value) */
 int32_t kulua_ldexp (int32_t x, int e) {
-  if (e >= 0)
-    return (e < 31) ? x << e : 0;
+  if (e >= 0) {
+    if (e >= 31) return 0;
+    /* cast to unsigned to avoid UB on left-shift of negative */
+    return (int32_t)((uint32_t)x << e);
+  }
   else
     return (-e < 31) ? x >> (-e) : 0;
 }

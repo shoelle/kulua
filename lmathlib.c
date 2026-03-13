@@ -75,7 +75,7 @@ static int math_acos (lua_State *L) {
 
 static int math_atan (lua_State *L) {
   lua_Number y = luaL_checknumber(L, 1);
-  lua_Number x = luaL_optnumber(L, 2, 1);
+  lua_Number x = luaL_optnumber(L, 2, KULUA_ONE);
   lua_pushnumber(L, l_mathop(atan2)(y, x));
   return 1;
 }
@@ -195,7 +195,7 @@ static int math_log (lua_State *L) {
     else if (base == (10 << 16))
       res = l_mathop(log10)(x);
     else
-      res = l_mathop(log)(x)/l_mathop(log)(base);
+      res = kulua_numdiv(l_mathop(log)(x), l_mathop(log)(base));
 #else
 #if !defined(LUA_USE_C89)
     if (base == l_mathop(2.0))

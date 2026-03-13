@@ -859,10 +859,10 @@ int kulua_number2strx (struct lua_State *L, char *buff, unsigned sz,
 ** which is just a type cast for the raw Q16.16 value).
 */
 static inline int32_t kulua_int2num_impl (long long i) {
-  long long r = i << 16;
-  if (r > (long long)0x7FFFFFFF) return (int32_t)0x7FFFFFFF;
-  if (r < (long long)(int32_t)0x80000000) return (int32_t)0x80000000;
-  return (int32_t)r;
+  /* check bounds before multiplying to avoid signed overflow UB */
+  if (i > (long long)0x7FFF) return (int32_t)0x7FFFFFFF;   /* > 32767 */
+  if (i < (long long)-0x8000) return (int32_t)0x80000000;  /* < -32768 */
+  return (int32_t)(i * 65536LL);
 }
 #define luai_int2num(i)  kulua_int2num_impl((long long)(i))
 
@@ -883,12 +883,18 @@ static inline int32_t kulua_int2num_impl (long long i) {
 ** Add/sub are plain integer ops (correct for fixed-point).
 ** Mul/div use 64-bit intermediates to avoid overflow.
 */
-#define luai_numadd(L,a,b)      ((a)+(b))
-#define luai_numsub(L,a,b)      ((a)-(b))
+/* Use unsigned arithmetic for add/sub to avoid signed overflow UB */
+#define luai_numadd(L,a,b)      ((int32_t)((uint32_t)(a)+(uint32_t)(b)))
+#define luai_numsub(L,a,b)      ((int32_t)((uint32_t)(a)-(uint32_t)(b)))
 #define luai_nummul(L,a,b) \
   ((lua_Number)(((int64_t)(a) * (int64_t)(b)) >> 16))
-#define luai_numdiv(L,a,b) \
-  ((lua_Number)(((int64_t)(a) << 16) / (int64_t)(b)))
+/* Division by zero: return max/min as substitute for ±inf */
+static inline int32_t kulua_numdiv (int32_t a, int32_t b) {
+  if (b == 0)
+    return (a >= 0) ? (int32_t)0x7FFFFFFF : (int32_t)0x80000001;
+  return (int32_t)(((int64_t)a * 65536LL) / (int64_t)b);
+}
+#define luai_numdiv(L,a,b)      kulua_numdiv((a),(b))
 #define luai_numidiv(L,a,b) \
   ((void)L, l_floor(luai_numdiv(L,a,b)))
 #define luai_nummod(L,a,b,m) \
@@ -899,7 +905,8 @@ static inline int32_t kulua_int2num_impl (long long i) {
 int32_t kulua_numpow (int32_t base, int32_t exp);
 #define luai_numpow(L,a,b)      kulua_numpow((a),(b))
 
-#define luai_numunm(L,a)        (-(a))
+/* cast through unsigned to avoid UB on negation of INT32_MIN */
+#define luai_numunm(L,a)        ((int32_t)(-(uint32_t)(a)))
 #define luai_numeq(a,b)         ((a)==(b))
 #define luai_numlt(a,b)         ((a)<(b))
 #define luai_numle(a,b)         ((a)<=(b))

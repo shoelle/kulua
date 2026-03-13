@@ -460,14 +460,16 @@ do   -- tests for string keys in weak tables
   collectgarbage(); collectgarbage()
   local m = collectgarbage("count")         -- current memory
   local a = setmetatable({}, {__mode = "kv"})
-  a[string.rep("a", 2^22)] = 25   -- long string key -> number value
-  a[string.rep("b", 2^22)] = {}   -- long string key -> collectable value
+  -- 2^22 overflows Q16.16 range; use smaller size for fixed-point
+  local longlen = _fixedpoint and 2^14 or 2^22
+  a[string.rep("a", longlen)] = 25   -- long string key -> number value
+  a[string.rep("b", longlen)] = {}   -- long string key -> collectable value
   a[{}] = 14                     -- collectable key
   collectgarbage()
   local k, v = next(a)   -- string key with number value preserved
-  assert(k == string.rep("a", 2^22) and v == 25)
+  assert(k == string.rep("a", longlen) and v == 25)
   assert(next(a, k) == nil)  -- everything else cleared
-  assert(a[string.rep("b", 2^22)] == undef)
+  assert(a[string.rep("b", longlen)] == undef)
   a[k] = undef        -- erase this last entry
   k = nil
   collectgarbage()

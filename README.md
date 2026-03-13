@@ -161,6 +161,49 @@ All source lives in the repo root.
 | Std libs | `lmathlib.c`, `lstrlib.c`, `ltablib.c`, `lbaselib.c`, `liolib.c`, `loslib.c` |
 | Interpreter | `lua.c` |
 
+## Merging upstream Lua updates
+
+Kulua is designed to sit on top of upstream Lua with minimal friction. Most changes are behind `#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED` guards or use macros that expand to no-ops on standard builds. Here's what to watch for when merging a new Lua release.
+
+### Change categories
+
+**Zero conflict** — new standalone files, never touch upstream:
+- `kulua_fixed.c` (all Q16.16 math, parsing, trig LUTs)
+- `build.zig` (parallel to upstream makefile)
+
+**Low conflict** — guarded `#if` blocks appended to upstream code:
+- `luaconf.h` — Q16.16 config section at the end of each upstream block
+- `lbaselib.c`, `lcode.c`, `lundump.h`, `lmathlib.c`, `lstrlib.c`, `loslib.c` — isolated `#if` blocks
+- `lstate.h`, `lstate.c`, `lapi.c` — new fields/functions, guarded
+- `lobject.c` — alternate `tostringbuffFloat` implementation behind `#if`
+
+**Medium conflict** — struct field additions (guarded, but interact with layout):
+- `lobject.h` — `kulua_objid` in `CommonHeader`, `insert_next` in `Node`, `insert_head`/`insert_tail` in `Table`
+
+**High conflict** — algorithmic additions to table internals:
+- `ltable.c` — ~200 lines of insertion-order linked list logic for deterministic `pairs()`. Touches rehash, insert, delete, and iteration paths. If upstream restructures table internals, this needs careful re-verification.
+
+### `cast_num` vs `luai_int2num`
+
+The most common per-site patch is replacing `cast_num(intvalue)` with `luai_int2num(intvalue)` (~20 sites in `lvm.c`, `ltm.c`, `loslib.c`, `lobject.h`, `lvm.h`). These are semantically different and cannot be unified:
+
+- `cast_num(x)` = plain C cast to `lua_Number` (the raw Q16.16 `int32_t`)
+- `luai_int2num(i)` = encode integer `i` as Q16.16 (`i << 16` with saturation)
+
+In standard Lua both are `(double)(i)`, so they're identical. In Q16.16 they differ: `cast_num(42)` gives raw value `42` (fraction-only), while `luai_int2num(42)` gives `2752512` (the encoding of `42.0`).
+
+After merging upstream, grep for new `cast_num(intvalue)` sites in the VM and coercion paths — any place that converts a logical integer to a float needs `luai_int2num` instead.
+
+### Merge checklist
+
+1. Apply upstream diff. Conflicts will mostly be in `luaconf.h` and `ltable.c`.
+2. `grep cast_num lvm.c ltm.c loslib.c lobject.h lvm.h` — check for new int-to-float coercion sites, replace with `luai_int2num`.
+3. Check `KULUA_ONE` — anywhere upstream assumes float `1.0` for ceiling/floor/rounding logic may need the constant.
+4. Rebuild: `zig build`
+5. Run tests: `cd testes && ../zig-out/bin/lua -W -e "_U=true" all.lua`
+6. Run determinism test: `zig build test-determinism-golden`
+7. If upstream changed table internals (`ltable.c`), manually verify insertion-order iteration survives rehash with `testes/fixed.lua`.
+
 ## References
 
 - [z8lua](https://github.com/samhocevar/z8lua) — Q16.16 Lua 5.2 fork (PICO-8 engine)

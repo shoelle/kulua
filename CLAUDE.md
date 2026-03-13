@@ -6,7 +6,7 @@ Deterministic fixed-point Lua for games. Fork of Lua 5.5-work (PUC-Rio).
 
 Kulua keeps Lua 5.5's dual number subtype system (`lua_Integer` + `lua_Number`) but replaces the float subtype with Q16.16 fixed-point (`int32_t`). This gives deterministic arithmetic for networked/replayed game simulations while preserving correct integer table indexing (unlike z8lua's single-type approach).
 
-Current state: **Q16.16 core implemented**. The interpreter builds and runs with fixed-point arithmetic. See `TODO.md` for remaining work (determinism patches, test suite adaptation).
+Current state: **Q16.16 core implemented, test suite passing**. The interpreter builds and runs with fixed-point arithmetic. All 34 upstream Lua test modules pass. See `TODO.md` for remaining work (determinism patches). See `README.md` for user-facing differences and gotchas vs standard Lua.
 
 ## Build (Zig)
 
@@ -31,7 +31,8 @@ cd testes && ../zig-out/bin/lua -W -e "_U=true" all.lua   # run test suite (port
 
 - Test runner: `testes/all.lua` (34 test modules)
 - `-e "_U=true"` sets `_soft`, `_port`, `_nomsg` to skip non-portable and long-running tests
-- Some tests assume 64-bit float range and will fail with Q16.16 (expected)
+- All 34 test modules pass; float-range-dependent tests are guarded behind `_fixedpoint`
+- `testes/fixed.lua` contains Q16.16-specific assertions
 
 ## Source layout
 

@@ -1,7 +1,171 @@
-# Lua
+# Kulua
 
-This is the repository of Lua development code, as seen by the Lua team. It contains the full history of all commits but is mirrored irregularly. For complete information about Lua, visit [Lua.org](https://www.lua.org/).
+Deterministic fixed-point Lua for games. Fork of [Lua 5.5](https://www.lua.org/) (PUC-Rio).
 
-Please **do not** send pull requests. To report issues, post a message to the [Lua mailing list](https://www.lua.org/lua-l.html).
+Kulua replaces Lua's `double` float type with **Q16.16 fixed-point** (`int32_t`) for bit-exact arithmetic across platforms. Integer table keys, closures, coroutines, the GC — everything else works like standard Lua.
 
-Download official Lua releases from [Lua.org](https://www.lua.org/download.html).
+## Why
+
+Networked and replayed game simulations need deterministic math. IEEE 754 floats aren't — different compilers, platforms, and optimization levels produce different results. Fixed-point arithmetic is identical everywhere because it's just integer math.
+
+## Quick start
+
+```bash
+zig build              # build interpreter
+zig build run          # launch REPL
+
+echo 'print(math.sin(math.pi / 6))' > test.lua
+zig build run -- test.lua
+```
+
+No dependencies beyond [Zig](https://ziglang.org/). No make, cmake, or readline.
+
+## How it works
+
+Lua 5.4+ has two number subtypes: `lua_Integer` (64-bit int) and `lua_Number` (double). Kulua keeps the integer and replaces the float:
+
+| | Standard Lua | Kulua |
+|---|---|---|
+| `lua_Integer` | `long long` (64-bit) | `long long` (64-bit) |
+| `lua_Number` | `double` (64-bit IEEE 754) | `int32_t` (Q16.16 fixed-point) |
+
+The upper 16 bits hold the integer part (signed), the lower 16 bits hold the fraction (65,536 steps per unit). This is the same format used by Doom, PICO-8, and GBA games.
+
+Because integers remain 64-bit, `t[1]` is still the integer `1` — not `65536`. This is Kulua's advantage over [z8lua](https://github.com/samhocevar/z8lua) (PICO-8's Lua), which uses a single number type where every table index is a Q16.16 value.
+
+## Differences from standard Lua
+
+If you're porting Lua code to Kulua, here's what to watch for.
+
+### Float range is ±32767.99998
+
+Q16.16 can only represent numbers from about -32768 to +32767. Standard Lua handles numbers up to ~1.8×10³⁰⁸.
+
+```lua
+-- Standard Lua: fine
+local x = 1000000.5
+
+-- Kulua: saturates to 32767.99998 (math.huge)
+local x = 1000000.5  -- silently becomes 32767.99998
+```
+
+Integer-to-float conversion saturates when the integer exceeds ±32767:
+```lua
+local big = 100000     -- integer, fine
+local f = big + 0.0    -- coerces to float: saturates to math.huge
+```
+
+### No NaN or infinity
+
+Q16.16 has no bit patterns for NaN or infinity. Division by zero returns `math.huge` (positive) or its negation instead of `inf`. The NaN check pattern `x ~= x` always returns `false`.
+
+```lua
+-- Standard Lua
+print(0/0)        -- nan
+print(1/0)        -- inf
+print(0/0 == 0/0) -- false (NaN)
+
+-- Kulua
+print(0/0)        -- 32767.99998 (clamped)
+print(1/0)        -- 32767.99998 (math.huge)
+print(0/0 == 0/0) -- true (no NaN exists)
+```
+
+`math.huge` is a finite value (~32768) rather than infinity.
+
+### ~4.6 decimal digits of precision
+
+Q16.16 has 16 fractional bits, giving about 4.6 significant decimal digits. Values that differ only in the 5th+ decimal place may compare equal.
+
+```lua
+-- Standard Lua: different values
+print(0.123456 > 0.123455)  -- true
+
+-- Kulua: same Q16.16 representation
+print(0.123456 > 0.123455)  -- false (indistinguishable)
+```
+
+Tostring round-trips may lose precision:
+```lua
+local x = 3.14159
+print(x)              -- 3.14159 (fine, within precision)
+-- but very precise values won't survive parse → print → parse
+```
+
+### Addition and subtraction wrap
+
+Add/sub use unsigned wrapping (not saturation) to avoid undefined behavior in C. This means overflow wraps around silently:
+
+```lua
+local x = 32000.0 + 32000.0  -- wraps to -1536.0
+```
+
+Multiplication and division use 64-bit intermediates and won't overflow for values within Q16.16 range.
+
+### Math library is approximate
+
+Trig functions use lookup tables (256 entries per quadrant) with linear interpolation. `exp`/`log` use Taylor series. Results are close but not bit-exact with standard `libm`:
+
+```lua
+math.sin(math.pi / 2)  -- 1.0 (exact)
+math.sin(1.0)           -- ~0.84147 (within ~0.01 of true value)
+math.sqrt(2.0)          -- ~1.41421 (good to ~4 digits)
+```
+
+`math.atan`, `math.asin`, `math.acos` use CORDIC. `math.exp` and `math.log` are rough approximations suitable for game use, not scientific computing.
+
+### `os.difftime` and `os.clock` saturate
+
+These return Q16.16 floats. Time differences larger than ~32768 seconds (~9 hours) saturate.
+
+### `string.format` works via double conversion
+
+`%f`, `%g`, and `%e` format specifiers convert the Q16.16 value to `double` for display. This is a display-only path and doesn't affect determinism.
+
+### `string.pack`/`unpack` with floats
+
+Packing Q16.16 values into `f` (float) or `d` (double) format converts appropriately. Unpacking saturates if the stored float exceeds Q16.16 range.
+
+## Build options
+
+```bash
+zig build                        # debug build → zig-out/bin/lua
+zig build -Doptimize=ReleaseFast # optimized build
+zig build run                    # build and launch REPL
+zig build run -- script.lua      # run a script
+zig build -Dtests=true           # enable ltests.h instrumentation
+```
+
+The original `makefile` is still present for reference but isn't maintained.
+
+## Test suite
+
+```bash
+cd testes && ../zig-out/bin/lua -W -e "_U=true" all.lua
+```
+
+All 34 upstream Lua test modules pass. Tests that assume 64-bit float range are guarded behind a `_fixedpoint` flag (auto-detected via `math.huge < 100000`). Q16.16-specific tests live in `testes/fixed.lua`.
+
+## Source layout
+
+All source lives in the repo root.
+
+| Area | Key files |
+|------|-----------|
+| Config | `luaconf.h`, `lua.h`, `llimits.h` |
+| Fixed-point | `kulua_fixed.c` (Q16.16 math, parsing, formatting) |
+| VM | `lvm.c`, `ldo.c`, `lopcodes.h` |
+| Compiler | `lparser.c`, `lcode.c`, `llex.c` |
+| Objects/tables | `lobject.c`, `ltable.c`, `lstring.c` |
+| Std libs | `lmathlib.c`, `lstrlib.c`, `ltablib.c`, `lbaselib.c`, `liolib.c`, `loslib.c` |
+| Interpreter | `lua.c` |
+
+## References
+
+- [z8lua](https://github.com/samhocevar/z8lua) — Q16.16 Lua 5.2 fork (PICO-8 engine)
+- [Factorio Lua](https://lua-api.factorio.com/latest/auxiliary/libraries.html) — deterministic multiplayer Lua reference
+- [Lua 5.5](https://www.lua.org/) — upstream
+
+## License
+
+Same as Lua — MIT license. See `lua.h` for the full notice.

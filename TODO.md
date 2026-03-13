@@ -89,8 +89,8 @@ Replace the float subtype with Q16.16 fixed-point. Patch for determinism.
 
 - [x] Zig build system: `build.zig` compiles with `-DLUA_FIXED_POINT`, produces static lib + interpreter
 - [x] Compile and pass basic Lua functionality (arithmetic, tables, strings, closures, coroutines)
-- [ ] Adapt Lua test suite for Q16.16 (tests assuming 64-bit float range need adjustment)
-- [ ] Fixed-point math tests: verify mul, div, trig, sqrt against known values
+- [x] Adapt Lua test suite for Q16.16 (tests assuming 64-bit float range need adjustment)
+- [x] Fixed-point math tests: verify mul, div, trig, sqrt against known values
 - [ ] Determinism test: two Lua states, same script, same inputs, `memcmp` output
 - [ ] Cross-platform determinism: native build vs WASM (Emscripten) produce identical results
 

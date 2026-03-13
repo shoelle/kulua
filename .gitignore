@@ -17,3 +17,7 @@ lua
 # Zig
 zig-out/
 .zig-cache/
+
+# Emscripten output
+*.wasm
+kulua_test_determinism.js

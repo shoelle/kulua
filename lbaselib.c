@@ -212,13 +212,9 @@ static int luaB_collectgarbage (lua_State *L) {
       int b = lua_gc(L, LUA_GCCOUNTB);
       checkvalres(k);
 #if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
-      /* k is KB as int, b is remaining bytes (0-1023).
-      ** Q16.16: k<<16 for integer part, b*64 for fractional part (b/1024).
-      ** Use int64 intermediate to avoid signed overflow for large heaps. */
-      { int64_t q = (int64_t)k * 65536 + (int64_t)b * 64;
-        if (q > (int64_t)KULUA_HUGE_VAL) q = (int64_t)KULUA_HUGE_VAL;
-        lua_pushnumber(L, (lua_Number)(int32_t)q);
-      }
+      /* Push KB as integer so Lua-side `count * 1024` uses 64-bit int
+      ** arithmetic instead of overflowing Q16.16 float (~32KB max). */
+      lua_pushinteger(L, (lua_Integer)k);
 #else
       lua_pushnumber(L, (lua_Number)k + ((lua_Number)b/1024));
 #endif

@@ -19,9 +19,7 @@ do print "testing 'table.create'"
   local m = collectgarbage("count") * 1024
   local t = table.create(N)
   local memdiff = collectgarbage("count") * 1024 - m
-  if not _fixedpoint then  -- count*1024 overflows Q16.16
-    assert(memdiff > N * 4)
-  end
+  assert(memdiff > N * 4)
   for i = 1, 20 do
     assert(#t == i - 1)
     t[i] = 0
@@ -34,9 +32,7 @@ do print "testing 'table.create'"
   m = collectgarbage("count") * 1024
   t = table.create(0, 1024)
   memdiff = collectgarbage("count") * 1024 - m
-  if not _fixedpoint then  -- memdiff overflows Q16.16
-    assert(memdiff > 1024 * 12)
-  end
+  assert(memdiff > 1024 * 12)
   assert(not T or select(2, T.querytab(t)) == 1024)
 
   local maxint1 = 1 << (string.packsize("i") * 8 - 1)

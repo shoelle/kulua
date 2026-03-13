@@ -497,6 +497,10 @@ LUA_API lua_Unsigned lua_toobjid (lua_State *L, int idx) {
   else
     return 0;
 }
+
+LUA_API void lua_resetobjidcounter (lua_State *L) {
+  G(L)->kulua_objid_counter = 0;
+}
 #endif
 
 

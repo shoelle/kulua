@@ -51,12 +51,12 @@ k29	29
 k30	30
 count	20
 === tostring IDs ===
-table: 301
-table: 302
-table: 303
-function: 307
-function: 308
-thread: 312
+table: 140
+table: 141
+table: 142
+function: 146
+function: 147
+thread: 151
 === math ===
 0.0
 1.0

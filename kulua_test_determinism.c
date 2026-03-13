@@ -187,7 +187,8 @@ static const char *test_gc_interaction =
   "local t2 = {}\n"
   "t2.a = 1; t2.b = 2; t2.c = 3\n"
   "for k, v in pairs(t2) do print(k, v) end\n"
-  "-- verify tostring format (not absolute ID, since it varies by platform)\n"
+  "-- verify tostring is deterministic format (absolute ID varies\n"
+  "-- cross-platform due to GC timing differences)\n"
   "local s = tostring(t2)\n"
   "print(string.find(s, '^table: %d+$') and 'tostring_ok' or 'tostring_fail')\n"
 ;
@@ -225,6 +226,9 @@ static lua_State *create_test_state (OutputBuffer *buf) {
   }
   kulua_opensandboxlibs(L);
   install_capture_print(L, buf);
+  /* Reset object ID counter after all setup so user scripts start from
+     a known baseline regardless of platform-specific init allocations */
+  lua_resetobjidcounter(L);
   return L;
 }
 

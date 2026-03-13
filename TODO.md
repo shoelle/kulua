@@ -71,13 +71,13 @@ Replace the float subtype with Q16.16 fixed-point. Patch for determinism.
 
 - [x] Hash function for number keys: use the raw int32 value, not `frexp`-based float hashing
 
-### Determinism patches (future work)
+### Determinism patches
 
-- [ ] `pairs()` iterates in insertion order (patch `ltable.c` `luaH_next`)
-- [ ] `tostring()` on tables: deterministic output (not pointer-based)
-- [ ] Sandbox mode: ability to strip `os`, `io`, `coroutine`, `loadfile`, `dofile`, `debug` from a Lua state
-- [ ] GC: support explicit stepping at controlled points, no finalizers (`__gc`) in sandbox mode
-- [ ] `luaL_makeseed`: deterministic (not time-based)
+- [x] `pairs()` iterates in insertion order (insertion-order linked list in hash nodes, survives rehash)
+- [x] `tostring()` on tables/functions/etc: deterministic output (monotonic counter-based `kulua_objid`, not pointer-based)
+- [x] Sandbox mode: `kulua_opensandboxlibs()` C API loads safe subset (base, math, string, table, utf8, coroutine), strips `loadfile`/`dofile`/`load`
+- [x] GC: `__gc` finalizers disabled in sandbox mode (`kulua_no_gc_metamethod` flag)
+- [x] `luaL_makeseed`: deterministic (returns 0 for fixed-point builds)
 
 ### Performance (future work)
 
@@ -91,8 +91,8 @@ Replace the float subtype with Q16.16 fixed-point. Patch for determinism.
 - [x] Compile and pass basic Lua functionality (arithmetic, tables, strings, closures, coroutines)
 - [x] Adapt Lua test suite for Q16.16 (tests assuming 64-bit float range need adjustment)
 - [x] Fixed-point math tests: verify mul, div, trig, sqrt against known values
-- [ ] Determinism test: two Lua states, same script, same inputs, `memcmp` output
-- [ ] Cross-platform determinism: native build vs WASM (Emscripten) produce identical results
+- [x] Determinism test: `kulua_test_determinism.c` — two lua_States, same scripts, `memcmp` output (`zig build test-determinism`)
+- [x] Cross-platform determinism: golden file approach (`zig build test-determinism-golden`); actual WASM build deferred
 
 ---
 

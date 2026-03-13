@@ -18,6 +18,21 @@ pub fn build(b: *std.Build) void {
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| run_cmd.addArgs(args);
     b.step("run", "Run the Lua interpreter").dependOn(&run_cmd.step);
+
+    // Determinism test harness
+    const det_test = buildDeterminismTest(b, target, optimize, lua_lib);
+    b.installArtifact(det_test);
+
+    // `zig build test-determinism` runs dual-state comparison
+    const run_det = b.addRunArtifact(det_test);
+    run_det.step.dependOn(b.getInstallStep());
+    b.step("test-determinism", "Run dual-state determinism test").dependOn(&run_det.step);
+
+    // `zig build test-determinism-golden` verifies against golden file
+    const run_golden = b.addRunArtifact(det_test);
+    run_golden.step.dependOn(b.getInstallStep());
+    run_golden.addArgs(&.{ "--golden-verify", "testes/determinism_golden.txt" });
+    b.step("test-determinism-golden", "Verify output against golden file").dependOn(&run_golden.step);
 }
 
 const core_sources = [_][]const u8{
@@ -96,6 +111,27 @@ fn buildLua(
     }
 
     return lib;
+}
+
+fn buildDeterminismTest(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    lua_lib: *std.Build.Step.Compile,
+) *std.Build.Step.Compile {
+    const exe = b.addExecutable(.{
+        .name = "kulua_test_determinism",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+    });
+
+    exe.addCSourceFiles(.{ .files = &.{"kulua_test_determinism.c"}, .flags = c_flags });
+    exe.linkLibrary(lua_lib);
+
+    return exe;
 }
 
 fn buildInterpreter(

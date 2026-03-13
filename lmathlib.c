@@ -24,7 +24,11 @@
 
 
 #undef PI
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+#define PI	((lua_Number)205887)  /* 3.14159... * 65536 in Q16.16 */
+#else
 #define PI	(l_mathop(3.141592653589793238462643383279502884))
+#endif
 
 
 static int math_abs (lua_State *L) {
@@ -154,7 +158,11 @@ static int math_modf (lua_State *L) {
     lua_Number ip = (n < 0) ? l_mathop(ceil)(n) : l_mathop(floor)(n);
     pushnumint(L, ip);
     /* fractional part (test needed for inf/-inf) */
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+    lua_pushnumber(L, (n == ip) ? (lua_Number)0 : (n - ip));
+#else
     lua_pushnumber(L, (n == ip) ? l_mathop(0.0) : (n - ip));
+#endif
   }
   return 2;
 }
@@ -181,6 +189,14 @@ static int math_log (lua_State *L) {
     res = l_mathop(log)(x);
   else {
     lua_Number base = luaL_checknumber(L, 2);
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+    if (base == (2 << 16))
+      res = l_mathop(log2)(x);
+    else if (base == (10 << 16))
+      res = l_mathop(log10)(x);
+    else
+      res = l_mathop(log)(x)/l_mathop(log)(base);
+#else
 #if !defined(LUA_USE_C89)
     if (base == l_mathop(2.0))
       res = l_mathop(log2)(x);
@@ -190,6 +206,7 @@ static int math_log (lua_State *L) {
       res = l_mathop(log10)(x);
     else
       res = l_mathop(log)(x)/l_mathop(log)(base);
+#endif
   }
   lua_pushnumber(L, res);
   return 1;
@@ -203,13 +220,25 @@ static int math_exp (lua_State *L) {
 
 
 static int math_deg (lua_State *L) {
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+  /* 180/pi in Q16.16 ≈ 57.2958 * 65536 = 3754936 */
+  lua_Number n = luaL_checknumber(L, 1);
+  lua_pushnumber(L, (int32_t)(((int64_t)n * 3754936) >> 16));
+#else
   lua_pushnumber(L, luaL_checknumber(L, 1) * (l_mathop(180.0) / PI));
+#endif
   return 1;
 }
 
 
 static int math_rad (lua_State *L) {
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+  /* pi/180 in Q16.16 ≈ 0.017453 * 65536 = 1144 */
+  lua_Number n = luaL_checknumber(L, 1);
+  lua_pushnumber(L, (int32_t)(((int64_t)n * 1144) >> 16));
+#else
   lua_pushnumber(L, luaL_checknumber(L, 1) * (PI / l_mathop(180.0)));
+#endif
   return 1;
 }
 
@@ -373,6 +402,16 @@ static Rand64 nextrand (Rand64 *state) {
 /* must throw out the extra (64 - FIGS) bits */
 #define shift64_FIG	(64 - FIGS)
 
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+/*
+** Convert random bits to Q16.16 in [0, 1.0).
+** Take top 16 bits of the 64-bit random value as the fractional part.
+** Result is in [0, 0xFFFF] which represents [0, 0.99998] in Q16.16.
+*/
+static lua_Number I2d (Rand64 x) {
+  return (lua_Number)((trim64(x) >> 48) & 0xFFFF);
+}
+#else
 /* 2^(-FIGS) == 2^-1 / 2^(FIGS-1) */
 #define scaleFIG	(l_mathop(0.5) / ((Rand64)1 << (FIGS - 1)))
 
@@ -384,6 +423,7 @@ static lua_Number I2d (Rand64 x) {
   lua_assert(0 <= res && res < 1);
   return res;
 }
+#endif
 
 /* convert a 'Rand64' to a 'lua_Unsigned' */
 #define I2UInt(x)	((lua_Unsigned)trim64(x))
@@ -494,7 +534,16 @@ static Rand64 nextrand (Rand64 *state) {
 #define UONE		((l_uint32)1)
 
 
-#if FIGS <= 32
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+/*
+** Convert random bits to Q16.16 in [0, 1.0).
+** Take top 16 bits of the higher half as the fractional part.
+*/
+static lua_Number I2d (Rand64 x) {
+  return (lua_Number)(trim32(x.h) >> 16);
+}
+
+#elif FIGS <= 32
 
 /* 2^(-FIGS) */
 #define scaleFIG       (l_mathop(0.5) / (UONE << (FIGS - 1)))
@@ -753,7 +802,11 @@ LUAMOD_API int luaopen_math (lua_State *L) {
   luaL_newlib(L, mathlib);
   lua_pushnumber(L, PI);
   lua_setfield(L, -2, "pi");
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+  lua_pushnumber(L, (lua_Number)0x7FFFFFFF);  /* max Q16.16 value */
+#else
   lua_pushnumber(L, (lua_Number)HUGE_VAL);
+#endif
   lua_setfield(L, -2, "huge");
   lua_pushinteger(L, LUA_MAXINTEGER);
   lua_setfield(L, -2, "maxinteger");

@@ -132,6 +132,7 @@
 #define LUA_FLOAT_FLOAT		1
 #define LUA_FLOAT_DOUBLE	2
 #define LUA_FLOAT_LONGDOUBLE	3
+#define LUA_FLOAT_FIXED		4
 
 
 /* Default configuration ('long long' and 'double', for 64-bit Lua) */
@@ -157,7 +158,14 @@
 #endif
 
 
-#if defined(LUA_32BITS)	/* { */
+#if defined(LUA_FIXED_POINT)	/* { */
+/*
+** Q16.16 fixed-point: 64-bit integers and int32_t "floats"
+*/
+#define LUA_INT_TYPE	LUA_INT_DEFAULT
+#define LUA_FLOAT_TYPE	LUA_FLOAT_FIXED
+
+#elif defined(LUA_32BITS)	/* }{ */
 /*
 ** 32-bit integers and 'float'
 */
@@ -413,7 +421,9 @@
 
 /* The following definition is good for most cases here */
 
+#if !defined(l_floor)
 #define l_floor(x)		(l_mathop(floor)(x))
+#endif
 
 
 /* now the variable definitions */
@@ -466,6 +476,92 @@
 #define l_mathop(op)		op
 
 #define lua_str2number(s,p)	strtod((s), (p))
+
+#elif LUA_FLOAT_TYPE == LUA_FLOAT_FIXED		/* }{ Q16.16 fixed-point */
+
+#include <stdint.h>
+
+#define LUA_NUMBER	int32_t
+#define LUAI_UACNUMBER	int32_t
+
+/*
+** Q16.16 float attribute equivalents.
+** l_floatatt(MANT_DIG) = 16 fractional bits.
+** l_floatatt(MAX_10_EXP) = 4 (log10(32767) ~ 4.5).
+*/
+#define l_floatatt(n)		KULUA_FATT_##n
+#define KULUA_FATT_MANT_DIG	16
+#define KULUA_FATT_MAX_EXP	15
+#define KULUA_FATT_MAX_10_EXP	4
+#define KULUA_FATT_DIG		4
+#define KULUA_FATT_MIN_EXP	(-16)
+#define KULUA_FATT_EPSILON	1	/* smallest Q16.16 step: 1/65536 */
+
+/*
+** l_mathop: route to kulua_* fixed-point implementations.
+** Forward declarations for all math functions used via l_mathop().
+*/
+int32_t kulua_sin (int32_t x);
+int32_t kulua_cos (int32_t x);
+int32_t kulua_tan (int32_t x);
+int32_t kulua_asin (int32_t x);
+int32_t kulua_acos (int32_t x);
+int32_t kulua_atan (int32_t x);
+int32_t kulua_atan2 (int32_t y, int32_t x);
+int32_t kulua_sqrt (int32_t x);
+int32_t kulua_fabs (int32_t x);
+int32_t kulua_ceil (int32_t x);
+int32_t kulua_fmod (int32_t a, int32_t b);
+int32_t kulua_exp (int32_t x);
+int32_t kulua_log (int32_t x);
+int32_t kulua_log2 (int32_t x);
+int32_t kulua_log10 (int32_t x);
+int32_t kulua_ldexp (int32_t x, int e);
+int32_t kulua_frexp (int32_t x, int *exp);
+int32_t kulua_numpow (int32_t base, int32_t exp);
+#define kulua_pow kulua_numpow
+#define kulua_floor kulua_floor_fixed
+
+#define l_mathop(op)		kulua_##op
+
+/*
+** l_floor for Q16.16: mask off fractional bits (with sign handling).
+*/
+#undef l_floor
+#define l_floor(x)		kulua_floor_fixed(x)
+
+static inline int32_t kulua_floor_fixed (int32_t x) {
+  if (x >= 0) return x & ~0xFFFF;
+  else {
+    /* For negative: if fractional part is nonzero, round toward -inf */
+    return (x & 0xFFFF) ? (x | 0xFFFF) + 1 - 0x10000 : x;
+  }
+}
+
+/*
+** String-to-number conversion: custom Q16.16 parser.
+*/
+int32_t kulua_str2number (const char *s, char **endptr);
+#define lua_str2number(s,p)	kulua_str2number((s), (p))
+
+int32_t kulua_strx2number (const char *s, char **endptr);
+#define lua_strx2number(s,p)	kulua_strx2number((s), (p))
+
+/*
+** Number format strings (used as fallback; custom formatter overrides).
+*/
+#define LUA_NUMBER_FRMLEN	""
+#define LUA_NUMBER_FMT		"%.5g"
+#define LUA_NUMBER_FMT_N	"%.5g"
+
+/*
+** Hex number-to-string: custom implementation.
+*/
+struct lua_State;
+int kulua_number2strx (struct lua_State *L, char *buff, unsigned sz,
+                       const char *fmt, int32_t n);
+#define lua_number2strx(L,b,sz,f,n)  kulua_number2strx((L),(b),(sz),(f),(n))
+
 
 #else						/* }{ */
 
@@ -620,7 +716,8 @@
 ** availability of these variants. ('math.h' is already included in
 ** all files that use these macros.)
 */
-#if defined(LUA_USE_C89) || (defined(HUGE_VAL) && !defined(HUGE_VALF))
+#if (defined(LUA_USE_C89) || (defined(HUGE_VAL) && !defined(HUGE_VALF))) \
+    && LUA_FLOAT_TYPE != LUA_FLOAT_FIXED
 #undef l_mathop  /* variants not available */
 #undef lua_str2number
 #define l_mathop(op)		(lua_Number)op  /* no variant */
@@ -754,6 +851,80 @@
 ** without modifying the main part of the file.
 */
 
+
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+
+/*
+** Integer-to-fixed conversion: i << 16 (NOT the same as cast_num,
+** which is just a type cast for the raw Q16.16 value).
+*/
+static inline int32_t kulua_int2num_impl (long long i) {
+  long long r = i << 16;
+  if (r > (long long)0x7FFFFFFF) return (int32_t)0x7FFFFFFF;
+  if (r < (long long)(int32_t)0x80000000) return (int32_t)0x80000000;
+  return (int32_t)r;
+}
+#define luai_int2num(i)  kulua_int2num_impl((long long)(i))
+
+/*
+** One in Q16.16 representation (used where code assumes float 1.0).
+*/
+#define KULUA_ONE  (1 << 16)
+
+/*
+** Float-to-integer: arithmetic right shift by 16.
+** Always fits for Q16.16 -> int64, so range check always succeeds.
+*/
+#define lua_numbertointeger(n,p) \
+  (*(p) = (lua_Integer)((n) >> 16), 1)
+
+/*
+** Arithmetic macros for Q16.16.
+** Add/sub are plain integer ops (correct for fixed-point).
+** Mul/div use 64-bit intermediates to avoid overflow.
+*/
+#define luai_numadd(L,a,b)      ((a)+(b))
+#define luai_numsub(L,a,b)      ((a)-(b))
+#define luai_nummul(L,a,b) \
+  ((lua_Number)(((int64_t)(a) * (int64_t)(b)) >> 16))
+#define luai_numdiv(L,a,b) \
+  ((lua_Number)(((int64_t)(a) << 16) / (int64_t)(b)))
+#define luai_numidiv(L,a,b) \
+  ((void)L, l_floor(luai_numdiv(L,a,b)))
+#define luai_nummod(L,a,b,m) \
+  { (void)L; lua_Number _q = luai_numidiv(L,(a),(b)); \
+    (m) = (a) - luai_nummul(L,_q,(b)); \
+    if (((m) > 0) ? (b) < 0 : ((m) < 0 && (b) > 0)) (m) += (b); }
+
+int32_t kulua_numpow (int32_t base, int32_t exp);
+#define luai_numpow(L,a,b)      kulua_numpow((a),(b))
+
+#define luai_numunm(L,a)        (-(a))
+#define luai_numeq(a,b)         ((a)==(b))
+#define luai_numlt(a,b)         ((a)<(b))
+#define luai_numle(a,b)         ((a)<=(b))
+#define luai_numgt(a,b)         ((a)>(b))
+#define luai_numge(a,b)         ((a)>=(b))
+#define luai_numisnan(a)        0
+
+/*
+** Table hashing: Q16.16 values are raw int32, use directly as hash.
+*/
+static inline unsigned kulua_hashfloat (int32_t n) {
+  unsigned int u = (unsigned int)n;
+  return (u <= (unsigned int)INT_MAX) ? u : ~u;
+}
+#define l_hashfloat(n)          kulua_hashfloat(n)
+
+#else  /* !LUA_FLOAT_FIXED */
+
+/*
+** Default: luai_int2num is just cast_num.
+*/
+#define luai_int2num(i)  cast_num(i)
+#define KULUA_ONE  1
+
+#endif  /* LUA_FLOAT_FIXED */
 
 
 #endif

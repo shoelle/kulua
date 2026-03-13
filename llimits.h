@@ -128,7 +128,9 @@ typedef LUAI_UACINT l_uacInt;
 
 #define cast_void(i)	cast(void, (i))
 #define cast_voidp(i)	cast(void *, (i))
+#if !defined(cast_num)
 #define cast_num(i)	cast(lua_Number, (i))
+#endif
 #define cast_int(i)	cast(int, (i))
 #define cast_short(i)	cast(short, (i))
 #define cast_uint(i)	cast(unsigned int, (i))
@@ -290,10 +292,12 @@ typedef unsigned long l_uint32;
 ** MAXINTEGER may not have one, and therefore its conversion to float
 ** may have an ill-defined value.)
 */
+#if !defined(lua_numbertointeger)
 #define lua_numbertointeger(n,p) \
   ((n) >= (LUA_NUMBER)(LUA_MININTEGER) && \
    (n) < -(LUA_NUMBER)(LUA_MININTEGER) && \
       (*(p) = (LUA_INTEGER)(n), 1))
+#endif
 
 
 

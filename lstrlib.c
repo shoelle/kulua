@@ -1153,6 +1153,17 @@ static void addquoted (luaL_Buffer *b, const char *s, size_t len) {
 ** (NaN cannot be expressed as a numeral, so we write '(0/0)' for it.)
 */
 static int quotefloat (lua_State *L, char *buff, lua_Number n) {
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+  /* Q16.16: no inf/NaN. Use hex format via our custom formatter. */
+  int nb = lua_number2strx(L, buff, MAX_ITEM, "%a", n);
+  /* ensures that 'buff' string uses a dot as the radix character */
+  if (memchr(buff, '.', cast_uint(nb)) == NULL) {  /* no dot? */
+    char point = lua_getlocaledecpoint();  /* try locale point */
+    char *ppoint = (char *)memchr(buff, point, cast_uint(nb));
+    if (ppoint) *ppoint = '.';  /* change it to a dot */
+  }
+  return nb;
+#else
   const char *s;  /* for the fixed representations */
   if (n == (lua_Number)HUGE_VAL)  /* inf? */
     s = "1e9999";
@@ -1173,6 +1184,7 @@ static int quotefloat (lua_State *L, char *buff, lua_Number n) {
   }
   /* for the fixed representations */
   return l_sprintf(buff, MAX_ITEM, "%s", s);
+#endif
 }
 
 
@@ -1330,8 +1342,14 @@ static int str_format (lua_State *L) {
         case 'e': case 'E': case 'g': case 'G': {
           lua_Number n = luaL_checknumber(L, arg);
           checkformat(L, form, L_FMTFLAGSF, 1);
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+          /* Q16.16: convert to double for display only */
+          nb = l_sprintf(buff, maxitem, form,
+                         (double)n / 65536.0);
+#else
           addlenmod(form, LUA_NUMBER_FRMLEN);
           nb = l_sprintf(buff, maxitem, form, (LUAI_UACNUMBER)n);
+#endif
           break;
         }
         case 'p': {
@@ -1799,7 +1817,11 @@ static int str_unpack (lua_State *L) {
       case Kfloat: {
         float f;
         copywithendian((char *)&f, data + pos, sizeof(f), h.islittle);
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+        lua_pushnumber(L, (lua_Number)(f * 65536.0f));
+#else
         lua_pushnumber(L, (lua_Number)f);
+#endif
         break;
       }
       case Knumber: {
@@ -1811,7 +1833,11 @@ static int str_unpack (lua_State *L) {
       case Kdouble: {
         double f;
         copywithendian((char *)&f, data + pos, sizeof(f), h.islittle);
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+        lua_pushnumber(L, (lua_Number)(f * 65536.0));
+#else
         lua_pushnumber(L, (lua_Number)f);
+#endif
         break;
       }
       case Kchar: {

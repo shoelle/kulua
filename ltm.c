@@ -211,7 +211,7 @@ int luaT_callorderiTM (lua_State *L, const TValue *p1, int v2,
                        int flip, int isfloat, TMS event) {
   TValue aux; const TValue *p2;
   if (isfloat) {
-    setfltvalue(&aux, cast_num(v2));
+    setfltvalue(&aux, luai_int2num(v2));
   }
   else
     setivalue(&aux, v2);

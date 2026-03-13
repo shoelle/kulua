@@ -38,51 +38,58 @@ Replace the float subtype with Q16.16 fixed-point. Patch for determinism.
 
 ### luaconf.h changes
 
-- [ ] `LUA_FLOAT_TYPE`: new option `LUA_FLOAT_FIXED` that sets `lua_Number` = `int32_t`
-- [ ] `l_floatatt`: fixed-point equivalents for `HUGE_VAL`, `MAX`, `MIN`, epsilon
-- [ ] Arithmetic macros (`luai_numadd`, `luai_numsub`, `luai_nummul`, `luai_numdiv`, `luai_numpow`, `luai_numidiv`, `luai_nummod`): add/sub are plain integer ops; mul/div use 64-bit intermediates
-- [ ] `luai_numisnan`: always returns 0
-- [ ] `lua_str2number`: custom parser, decimal string to Q16.16
-- [ ] `lua_getlnumfv2`: number-to-string formatting for fixed-point display
+- [x] `LUA_FLOAT_TYPE`: new option `LUA_FLOAT_FIXED` that sets `lua_Number` = `int32_t`
+- [x] `l_floatatt`: fixed-point equivalents for `HUGE_VAL`, `MAX`, `MIN`, epsilon
+- [x] Arithmetic macros (`luai_numadd`, `luai_numsub`, `luai_nummul`, `luai_numdiv`, `luai_numpow`, `luai_numidiv`, `luai_nummod`): add/sub are plain integer ops; mul/div use 64-bit intermediates
+- [x] `luai_numisnan`: always returns 0
+- [x] `lua_str2number`: custom parser, decimal string to Q16.16
+- [x] Number-to-string formatting: custom `tostringbuffFloat` for Q16.16 display
 
 ### VM changes (lvm.c, lobject.c)
 
-- [ ] Int-to-float coercion: `value << 16`
-- [ ] Float-to-int coercion: `value >> 16`
-- [ ] Float literal parsing in compiler: `3.14` becomes the Q16.16 representation
-- [ ] Verify `/` (float division), `//` (integer division), `%` (modulo) all behave correctly
-- [ ] Verify comparison operators work (fixed-point values compare correctly as plain int32 since the encoding is monotonic)
+- [x] Int-to-float coercion: `luai_int2num` macro (`value << 16` with saturation)
+- [x] Float-to-int coercion: `value >> 16` via `lua_numbertointeger`
+- [x] Float literal parsing in compiler: `3.14` becomes the Q16.16 representation
+- [x] Verify `/` (float division), `//` (integer division), `%` (modulo) all behave correctly
+- [x] Verify comparison operators work (fixed-point values compare correctly as plain int32 since the encoding is monotonic)
+- [x] `luaV_flttointeger` ceiling fix: `KULUA_ONE` (1<<16) instead of literal `1`
+- [x] `luaK_numberK` simplified for fixed-point (no `ldexp` perturbation needed)
 
 ### Math library (lmathlib.c)
 
-- [ ] `math.sin`, `math.cos`: LUT-based (256+ entries per quadrant, linear interpolation)
-- [ ] `math.sqrt`: Newton-Raphson in fixed-point (3-4 iterations for Q16.16 precision)
-- [ ] `math.atan`: CORDIC or LUT
-- [ ] `math.abs`, `math.floor`, `math.ceil`: bitwise ops on the fixed-point representation
-- [ ] `math.min`, `math.max`: plain integer comparison (monotonic encoding)
-- [ ] `math.pi`: Q16.16 representation of pi (205887)
-- [ ] Remove or stub: `math.exp`, `math.log`, `math.pow`
-- [ ] `math.random`: caller-provided PRNG hook (not `rand()`)
-- [ ] `math.randomseed`: no-op or caller-provided
+- [x] `math.sin`, `math.cos`: LUT-based (256 entries per quadrant, linear interpolation)
+- [x] `math.sqrt`: Newton-Raphson in fixed-point (6 iterations for Q16.16 precision)
+- [x] `math.atan`: CORDIC-based `atan2`
+- [x] `math.abs`, `math.floor`, `math.ceil`: bitwise ops on the fixed-point representation
+- [x] `math.min`, `math.max`: plain integer comparison (monotonic encoding) — unchanged
+- [x] `math.pi`: Q16.16 representation of pi (205887)
+- [x] `math.exp`, `math.log`: Taylor series approximations (stub quality)
+- [x] `math.random`: Q16.16-native output from xoshiro256** (top 16 bits as fraction)
+- [x] `math.randomseed`: unchanged (uses `luaL_makeseed`)
 
-### Determinism patches
+### Table hashing
+
+- [x] Hash function for number keys: use the raw int32 value, not `frexp`-based float hashing
+
+### Determinism patches (future work)
 
 - [ ] `pairs()` iterates in insertion order (patch `ltable.c` `luaH_next`)
-- [ ] Hash function for number keys: use the raw int32 value, not `frexp`-based float hashing
 - [ ] `tostring()` on tables: deterministic output (not pointer-based)
 - [ ] Sandbox mode: ability to strip `os`, `io`, `coroutine`, `loadfile`, `dofile`, `debug` from a Lua state
 - [ ] GC: support explicit stepping at controlled points, no finalizers (`__gc`) in sandbox mode
 - [ ] `luaL_makeseed`: deterministic (not time-based)
 
-### Performance
+### Performance (future work)
 
-- [ ] Audit PUC Lua VM hot paths for game-friendly optimizations (see Performance section below)
+- [ ] Computed goto dispatch: Lua 5.5 already ships `ljumptab.h` with computed goto infrastructure — investigate whether it's already active with GCC/Clang
+- [ ] Audit PUC Lua VM hot paths for game-friendly optimizations
 - [ ] Benchmark: Kulua vs PUC Lua 5.5 on representative game workloads
 
 ### Build and test
 
-- [ ] Standalone repo with CMake or plain Makefile, produces a C static library
-- [ ] Compile and pass Lua's own test suite (with expected failures for removed/changed modules)
+- [x] Zig build system: `build.zig` compiles with `-DLUA_FIXED_POINT`, produces static lib + interpreter
+- [x] Compile and pass basic Lua functionality (arithmetic, tables, strings, closures, coroutines)
+- [ ] Adapt Lua test suite for Q16.16 (tests assuming 64-bit float range need adjustment)
 - [ ] Fixed-point math tests: verify mul, div, trig, sqrt against known values
 - [ ] Determinism test: two Lua states, same script, same inputs, `memcmp` output
 - [ ] Cross-platform determinism: native build vs WASM (Emscripten) produce identical results

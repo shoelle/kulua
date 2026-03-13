@@ -19,7 +19,11 @@
 
 #define LUAC_INT	-0x5678
 #define LUAC_INST	0x12345678
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+#define LUAC_NUM	((lua_Number)(-370 * 65536 - 32768))  /* -370.5 Q16.16 */
+#else
 #define LUAC_NUM	cast_num(-370.5)
+#endif
 
 /*
 ** Encode major-minor version in one byte, one nibble for each

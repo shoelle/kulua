@@ -41,6 +41,7 @@ const core_sources = [_][]const u8{
     "lundump.c",
     "lvm.c",
     "lzio.c",
+    "kulua_fixed.c",
 };
 
 const lib_sources = [_][]const u8{
@@ -61,11 +62,13 @@ const lib_sources = [_][]const u8{
 const c_flags: []const []const u8 = &.{
     "-std=c99",
     "-Wall",
+    "-DLUA_FIXED_POINT",
 };
 
 const c_flags_tests: []const []const u8 = &.{
     "-std=c99",
     "-Wall",
+    "-DLUA_FIXED_POINT",
     "-DLUA_USER_H=\"ltests.h\"",
 };
 

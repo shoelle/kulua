@@ -213,3 +213,8 @@ After merging upstream, grep for new `cast_num(intvalue)` sites in the VM and co
 ## License
 
 Same as Lua — MIT license. See `lua.h` for the full notice.
+
+## Caveat Machinam
+
+This was written with Claude Code. 
+

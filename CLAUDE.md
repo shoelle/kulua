@@ -29,10 +29,10 @@ zig build -Dtests=true           # enable ltests.h instrumentation
 cd testes && ../zig-out/bin/lua -W -e "_U=true" all.lua   # run test suite (portable mode)
 ```
 
-- Test runner: `testes/all.lua` (34 test modules)
+- Test runner: `testes/all.lua` (35 test modules: 34 upstream + `fixed.lua`)
 - `-e "_U=true"` sets `_soft`, `_port`, `_nomsg` to skip non-portable and long-running tests
-- All 34 test modules pass; float-range-dependent tests are guarded behind `_fixedpoint`
-- `testes/fixed.lua` contains Q16.16-specific assertions
+- All 35 test modules pass; float-range-dependent tests are guarded behind `_fixedpoint`
+- `testes/fixed.lua` contains Q16.16-specific assertions (saturation, trig, parsing, determinism)
 
 ## Source layout
 
@@ -59,7 +59,8 @@ The fixed-point system is activated by `-DLUA_FIXED_POINT` which sets `LUA_FLOAT
 
 - **`luai_int2num(i)`** macro converts integers to Q16.16 (`i << 16` with saturation). Replaces `cast_num(i)` at all int→float coercion sites. For non-fixed builds, expands to plain `cast_num`.
 - **`KULUA_ONE`** = `1 << 16` in fixed-point, `1` in float. Used where code assumes float `1.0`.
-- **Arithmetic macros** (`luai_nummul`, `luai_numdiv`) use 64-bit intermediates to avoid overflow.
+- **`KULUA_HUGE_VAL`** / **`KULUA_NHUGE_VAL`** = symmetric ±32767.99998 sentinel constants (substitutes for ±inf). `INT32_MIN` (-32768.0) is a valid value, not a sentinel.
+- **Arithmetic macros** (`luai_numadd`, `luai_numsub`, `luai_nummul`, `luai_numdiv`) use 64-bit intermediates and **saturate** on overflow to `KULUA_HUGE_VAL`/`KULUA_NHUGE_VAL`.
 - **`kulua_fixed.c`** contains all Q16.16-specific C functions (str2number, number2str, trig LUT, sqrt, pow, exp, log). Keeps upstream files clean.
 - **`l_mathop(op)`** expands to `kulua_##op`, routing to fixed-point implementations.
 - **`l_hashfloat`** uses raw int32 value (no `frexp`).
@@ -68,7 +69,7 @@ The fixed-point system is activated by `-DLUA_FIXED_POINT` which sets `LUA_FLOAT
 
 ### Files modified from upstream Lua 5.5
 
-- `luaconf.h` — `LUA_FLOAT_FIXED` type, arithmetic macros, `luai_int2num`, `l_hashfloat`
+- `luaconf.h` — `LUA_FLOAT_FIXED` type, saturating arithmetic, `luai_int2num`, `l_hashfloat`, sentinel constants
 - `llimits.h` — `#if !defined` guards on `cast_num`, `lua_numbertointeger`
 - `lobject.h` — `cast_num` → `luai_int2num` in `nvalue()`
 - `lvm.h` — `cast_num` → `luai_int2num` in `tonumberns()`
@@ -79,8 +80,10 @@ The fixed-point system is activated by `-DLUA_FIXED_POINT` which sets `LUA_FLOAT
 - `lundump.h` — Q16.16 `LUAC_NUM` constant
 - `lmathlib.c` — PI, huge, deg/rad constants, Q16.16 I2d for PRNG
 - `lstrlib.c` — `%f/%g/%e` formatting via double conversion, `quotefloat` override
-- `lbaselib.c` — `collectgarbage("count")` Q16.16 formatting
+- `lbaselib.c` — `collectgarbage("count")` Q16.16 formatting (int64 intermediate for large heaps)
+- `ltable.c` — GC object hashing uses `kulua_objid` for determinism, insertion-order linked list
 - `loslib.c` — `os.clock()`, `os.difftime()` Q16.16 conversion
+- `onelua.c` — includes `kulua_fixed.c` for single-file builds
 
 ## References
 

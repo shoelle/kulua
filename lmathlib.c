@@ -803,7 +803,7 @@ LUAMOD_API int luaopen_math (lua_State *L) {
   lua_pushnumber(L, PI);
   lua_setfield(L, -2, "pi");
 #if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
-  lua_pushnumber(L, (lua_Number)0x7FFFFFFF);  /* max Q16.16 value */
+  lua_pushnumber(L, (lua_Number)KULUA_HUGE_VAL);  /* max Q16.16 value */
 #else
   lua_pushnumber(L, (lua_Number)HUGE_VAL);
 #endif

@@ -94,7 +94,7 @@ int32_t kulua_str2number (const char *s, char **endptr) {
           while (isdigit((unsigned char)*s)) s++;
           if (endptr) *endptr = (char *)s;
           if (eneg) return 0;
-          return neg ? (int32_t)0x80000000 : (int32_t)0x7FFFFFFF;
+          return neg ? KULUA_NHUGE_VAL : KULUA_HUGE_VAL;
         }
         s++;
       }
@@ -114,11 +114,12 @@ int32_t kulua_str2number (const char *s, char **endptr) {
 
   if (net_exp > 0) {
     for (int j = 0; j < net_exp; j++) {
-      result *= 10;
-      if (result > (int64_t)0x7FFFFFFF) {
+      if (result > (int64_t)KULUA_HUGE_VAL) {
+        /* already exceeds Q16.16 range, more multiplying won't help */
         if (endptr) *endptr = (char *)s;
-        return neg ? (int32_t)0x80000000 : (int32_t)0x7FFFFFFF;
+        return neg ? KULUA_NHUGE_VAL : KULUA_HUGE_VAL;
       }
+      result *= 10;
     }
   } else if (net_exp < 0) {
     int abs_exp = -net_exp;
@@ -132,9 +133,9 @@ int32_t kulua_str2number (const char *s, char **endptr) {
   }
 
   /* clamp to Q16.16 range */
-  if (result > (int64_t)0x7FFFFFFF) {
+  if (result > (int64_t)KULUA_HUGE_VAL) {
     if (endptr) *endptr = (char *)s;
-    return neg ? (int32_t)0x80000000 : (int32_t)0x7FFFFFFF;
+    return neg ? KULUA_NHUGE_VAL : KULUA_HUGE_VAL;
   }
 
   int32_t r = (int32_t)result;
@@ -224,7 +225,7 @@ int32_t kulua_strx2number (const char *s, char **endptr) {
       }
     }
     if (endptr) *endptr = (char *)s;
-    return neg ? (int32_t)0x80000000 : (int32_t)0x7FFFFFFF;
+    return neg ? KULUA_NHUGE_VAL : KULUA_HUGE_VAL;
   }
 
   result = (ipart << 16) | (int32_t)frac;
@@ -242,13 +243,19 @@ int32_t kulua_strx2number (const char *s, char **endptr) {
       s = sp;
     } else {
       while (isdigit((unsigned char)*s)) {
-        exp = exp * 10 + (*s - '0');
+        if (exp < 100)  /* prevent int overflow in exp itself */
+          exp = exp * 10 + (*s - '0');
         s++;
       }
-      if (eneg)
-        result >>= exp;
-      else
-        result = (int32_t)((uint32_t)result << exp);  /* unsigned to avoid UB */
+      if (eneg) {
+        result = (exp >= 31) ? 0 : result >> exp;
+      } else {
+        if (exp >= 31)
+          result = (result > 0) ? KULUA_HUGE_VAL
+                 : (result < 0) ? KULUA_NHUGE_VAL : 0;
+        else
+          result = (int32_t)((uint32_t)result << exp);  /* unsigned to avoid UB */
+      }
     }
   }
 
@@ -328,7 +335,7 @@ int32_t kulua_numpow (int32_t base, int32_t exp) {
 
   if (neg_exp) {
     /* 1/result in Q16.16 */
-    if (result == 0) return (int32_t)0x7FFFFFFF;  /* inf-ish */
+    if (result == 0) return KULUA_HUGE_VAL;  /* inf-ish */
     result = (int32_t)(((int64_t)1 << 32) / (int64_t)result);
   }
 
@@ -445,8 +452,8 @@ int32_t kulua_cos (int32_t x) {
 
 int32_t kulua_tan (int32_t x) {
   int32_t c = kulua_cos(x);
-  if (c == 0) return (kulua_sin(x) >= 0) ? (int32_t)0x7FFFFFFF
-                                          : (int32_t)0x80000001;
+  if (c == 0) return (kulua_sin(x) >= 0) ? KULUA_HUGE_VAL
+                                          : KULUA_NHUGE_VAL;
   return (int32_t)(((int64_t)kulua_sin(x) * 65536LL) / (int64_t)c);
 }
 
@@ -561,8 +568,8 @@ int32_t kulua_sqrt (int32_t x) {
 ** =================================================================== */
 
 int32_t kulua_fabs (int32_t x) {
-  /* INT32_MIN: -(-2147483648) is UB, just return INT32_MAX */
-  if (x == (int32_t)0x80000000) return (int32_t)0x7FFFFFFF;
+  /* INT32_MIN: -(-2147483648) is UB, saturate to HUGE_VAL */
+  if (x == (int32_t)0x80000000) return KULUA_HUGE_VAL;
   return (x < 0) ? -x : x;
 }
 
@@ -608,7 +615,7 @@ int32_t kulua_exp (int32_t x) {
 
 
 int32_t kulua_log (int32_t x) {
-  if (x <= 0) return (int32_t)0x80000000;  /* -inf-ish */
+  if (x <= 0) return KULUA_NHUGE_VAL;  /* -inf-ish */
   /* ln(x) for Q16.16 using a simple series.
   ** Normalize x to [1,2) range, then use ln(1+u) series.
   */

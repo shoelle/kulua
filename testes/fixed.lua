@@ -26,8 +26,9 @@ assert(-100 + 0.0 == -100.0)
 assert(0 + 0.0 == 0.0)
 
 -- saturation: integers beyond Q16.16 range saturate
-assert(100000 + 0.0 == math.huge)  -- saturates to max (INT32_MAX)
-assert(-100000 + 0.0 < 0)  -- saturates to min (INT32_MIN)
+assert(100000 + 0.0 == math.huge)  -- saturates to KULUA_HUGE_VAL
+assert(-100000 + 0.0 < 0)  -- saturates to KULUA_NHUGE_VAL
+assert(-100000 + 0.0 == -math.huge)  -- symmetric sentinels
 
 
 -- basic arithmetic
@@ -223,13 +224,26 @@ assert(tonumber("0x1p") == nil)
 assert(tonumber("0x1p+") == nil)
 
 
--- wrapping arithmetic (add/sub use unsigned wrapping)
+-- saturating arithmetic (add/sub/mul clamp on overflow instead of wrapping)
 do
-  -- very large positive + positive wraps around
+  -- very large positive + positive saturates to max
   local big = 32000.0
   local sum = big + big
-  -- result wraps (64000 doesn't fit in Q16.16)
-  assert(sum < 0)  -- wraps to negative
+  -- result saturates (64000 doesn't fit in Q16.16)
+  assert(sum > 0)  -- saturates to positive max, not negative wrap
+  assert(sum == math.huge)
+
+  -- very large negative + negative saturates to min
+  local negsum = (-big) + (-big)
+  assert(negsum < 0)
+
+  -- subtraction saturation
+  assert(big - (-big) == math.huge)
+  assert((-big) - big < 0)
+
+  -- multiplication saturation
+  assert(200.0 * 200.0 == math.huge)  -- 40000 > Q16.16 max
+  assert(200.0 * (-200.0) < 0)        -- negative saturation
 end
 
 

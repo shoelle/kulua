@@ -102,6 +102,9 @@
 #include "lvm.c"
 #include "lapi.c"
 
+/* fixed-point math support */
+#include "kulua_fixed.c"
+
 /* auxiliary library -- used by all */
 #include "lauxlib.c"
 

@@ -19,7 +19,9 @@ do print "testing 'table.create'"
   local m = collectgarbage("count") * 1024
   local t = table.create(N)
   local memdiff = collectgarbage("count") * 1024 - m
-  assert(memdiff > N * 4)
+  if not _fixedpoint then  -- count*1024 overflows Q16.16
+    assert(memdiff > N * 4)
+  end
   for i = 1, 20 do
     assert(#t == i - 1)
     t[i] = 0

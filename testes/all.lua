@@ -199,6 +199,9 @@ dofile('errors.lua')
 dofile('math.lua')
 dofile('sort.lua', true)
 dofile('bitwise.lua')
+if _fixedpoint then
+  dofile('fixed.lua')
+end
 assert(dofile('verybig.lua', true) == 10); collectgarbage()
 dofile('files.lua')
 

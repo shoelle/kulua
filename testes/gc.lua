@@ -548,7 +548,7 @@ do
 end
 
 
-do
+if not _fixedpoint then  -- gcinfo() values overflow Q16.16 range
   collectgarbage()
   collectgarbage"stop"
   collectgarbage("step")   -- steps should not unblock the collector

@@ -6,7 +6,7 @@ Deterministic fixed-point Lua for games. Fork of Lua 5.5.
 
 Lua 5.4+ has two number subtypes: `lua_Integer` and `lua_Number` (float). The VM tracks which is which. Kulua keeps the integer subtype and replaces only the float subtype with Q16.16 fixed-point.
 
-- `lua_Integer` stays as `int32_t`. Array indices, loop counters, bitwise ops all work unchanged.
+- `lua_Integer` stays as `long long` (64-bit). Array indices, loop counters, bitwise ops all work unchanged.
 - `lua_Number` becomes `int32_t` (Q16.16). Fractional values use this.
 - Int-to-float coercion becomes `value << 16`. Float-to-int becomes `value >> 16`.
 - `t[2]` uses the integer `2` directly. No table indexing problem (unlike z8lua/Lua 5.2 where everything was one type).
@@ -40,7 +40,7 @@ Replace the float subtype with Q16.16 fixed-point. Patch for determinism.
 
 - [x] `LUA_FLOAT_TYPE`: new option `LUA_FLOAT_FIXED` that sets `lua_Number` = `int32_t`
 - [x] `l_floatatt`: fixed-point equivalents for `HUGE_VAL`, `MAX`, `MIN`, epsilon
-- [x] Arithmetic macros (`luai_numadd`, `luai_numsub`, `luai_nummul`, `luai_numdiv`, `luai_numpow`, `luai_numidiv`, `luai_nummod`): add/sub are plain integer ops; mul/div use 64-bit intermediates
+- [x] Arithmetic macros (`luai_numadd`, `luai_numsub`, `luai_nummul`, `luai_numdiv`, `luai_numpow`, `luai_numidiv`, `luai_nummod`): all use 64-bit intermediates with saturation to `KULUA_HUGE_VAL`/`KULUA_NHUGE_VAL` on overflow
 - [x] `luai_numisnan`: always returns 0
 - [x] `lua_str2number`: custom parser, decimal string to Q16.16
 - [x] Number-to-string formatting: custom `tostringbuffFloat` for Q16.16 display
@@ -75,6 +75,7 @@ Replace the float subtype with Q16.16 fixed-point. Patch for determinism.
 
 - [x] `pairs()` iterates in insertion order (insertion-order linked list in hash nodes, survives rehash)
 - [x] `tostring()` on tables/functions/etc: deterministic output (monotonic counter-based `kulua_objid`, not pointer-based)
+- [x] Table hashing for GC objects as keys: uses `kulua_objid` instead of pointer address for deterministic bucket placement
 - [x] Sandbox mode: `kulua_opensandboxlibs()` C API loads safe subset (base, math, string, table, utf8, coroutine), strips `loadfile`/`dofile`/`load`
 - [x] GC: `__gc` finalizers disabled in sandbox mode (`kulua_no_gc_metamethod` flag)
 - [x] `luaL_makeseed`: deterministic (returns 0 for fixed-point builds)

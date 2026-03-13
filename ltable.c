@@ -212,15 +212,20 @@ static Node *mainpositionTV (const Table *t, const TValue *key) {
       return hashboolean(t, 1);
     case LUA_VLIGHTUSERDATA: {
       void *p = pvalue(key);
-      return hashpointer(t, p);
+      return hashpointer(t, p);  /* light userdata: no GCObject, pointer-based */
     }
     case LUA_VLCF: {
       lua_CFunction f = fvalue(key);
-      return hashpointer(t, f);
+      return hashpointer(t, f);  /* light C function: no GCObject, pointer-based */
     }
     default: {
       GCObject *o = gcvalue(key);
+#if defined(LUA_FIXED_POINT)
+      /* Use deterministic object ID instead of pointer address */
+      return hashmod(t, cast_uint(o->kulua_objid));
+#else
       return hashpointer(t, o);
+#endif
     }
   }
 }

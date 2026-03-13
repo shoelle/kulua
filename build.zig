@@ -77,12 +77,14 @@ const lib_sources = [_][]const u8{
 const c_flags: []const []const u8 = &.{
     "-std=c99",
     "-Wall",
+    "-Wextra", "-Wno-unused-parameter",
     "-DLUA_FIXED_POINT",
 };
 
 const c_flags_tests: []const []const u8 = &.{
     "-std=c99",
     "-Wall",
+    "-Wextra", "-Wno-unused-parameter",
     "-DLUA_FIXED_POINT",
     "-DLUA_USER_H=\"ltests.h\"",
 };

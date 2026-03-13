@@ -855,21 +855,29 @@ int kulua_number2strx (struct lua_State *L, char *buff, unsigned sz,
 #if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
 
 /*
+** One in Q16.16 representation (used where code assumes float 1.0).
+*/
+#define KULUA_ONE  (1 << 16)
+
+/*
+** Sentinel values for overflow / division-by-zero (substitutes for ±inf).
+** Symmetric: KULUA_NHUGE_VAL == -KULUA_HUGE_VAL in unsigned arithmetic.
+** INT32_MIN (0x80000000) is a valid Q16.16 value (-32768.0), not a sentinel.
+*/
+#define KULUA_HUGE_VAL   ((int32_t)0x7FFFFFFF)    /* +32767.99998 */
+#define KULUA_NHUGE_VAL  ((int32_t)0x80000001)    /* -32767.99998 */
+
+/*
 ** Integer-to-fixed conversion: i << 16 (NOT the same as cast_num,
 ** which is just a type cast for the raw Q16.16 value).
 */
 static inline int32_t kulua_int2num_impl (long long i) {
   /* check bounds before multiplying to avoid signed overflow UB */
-  if (i > (long long)0x7FFF) return (int32_t)0x7FFFFFFF;   /* > 32767 */
-  if (i < (long long)-0x8000) return (int32_t)0x80000000;  /* < -32768 */
+  if (i > (long long)0x7FFF) return KULUA_HUGE_VAL;   /* > 32767 */
+  if (i < (long long)-0x8000) return KULUA_NHUGE_VAL;  /* < -32768 */
   return (int32_t)(i * 65536LL);
 }
 #define luai_int2num(i)  kulua_int2num_impl((long long)(i))
-
-/*
-** One in Q16.16 representation (used where code assumes float 1.0).
-*/
-#define KULUA_ONE  (1 << 16)
 
 /*
 ** Float-to-integer: arithmetic right shift by 16.
@@ -883,15 +891,32 @@ static inline int32_t kulua_int2num_impl (long long i) {
 ** Add/sub are plain integer ops (correct for fixed-point).
 ** Mul/div use 64-bit intermediates to avoid overflow.
 */
-/* Use unsigned arithmetic for add/sub to avoid signed overflow UB */
-#define luai_numadd(L,a,b)      ((int32_t)((uint32_t)(a)+(uint32_t)(b)))
-#define luai_numsub(L,a,b)      ((int32_t)((uint32_t)(a)-(uint32_t)(b)))
-#define luai_nummul(L,a,b) \
-  ((lua_Number)(((int64_t)(a) * (int64_t)(b)) >> 16))
+/* Saturating add/sub/mul for Q16.16: clamp on overflow instead of wrapping */
+static inline int32_t kulua_numadd (int32_t a, int32_t b) {
+  int64_t r = (int64_t)a + (int64_t)b;
+  if (r > (int64_t)KULUA_HUGE_VAL) return KULUA_HUGE_VAL;
+  if (r < (int64_t)KULUA_NHUGE_VAL) return KULUA_NHUGE_VAL;
+  return (int32_t)r;
+}
+static inline int32_t kulua_numsub (int32_t a, int32_t b) {
+  int64_t r = (int64_t)a - (int64_t)b;
+  if (r > (int64_t)KULUA_HUGE_VAL) return KULUA_HUGE_VAL;
+  if (r < (int64_t)KULUA_NHUGE_VAL) return KULUA_NHUGE_VAL;
+  return (int32_t)r;
+}
+static inline int32_t kulua_nummul (int32_t a, int32_t b) {
+  int64_t r = ((int64_t)a * (int64_t)b) >> 16;
+  if (r > (int64_t)KULUA_HUGE_VAL) return KULUA_HUGE_VAL;
+  if (r < (int64_t)KULUA_NHUGE_VAL) return KULUA_NHUGE_VAL;
+  return (int32_t)r;
+}
+#define luai_numadd(L,a,b)      kulua_numadd((a),(b))
+#define luai_numsub(L,a,b)      kulua_numsub((a),(b))
+#define luai_nummul(L,a,b)      kulua_nummul((a),(b))
 /* Division by zero: return max/min as substitute for ±inf */
 static inline int32_t kulua_numdiv (int32_t a, int32_t b) {
   if (b == 0)
-    return (a >= 0) ? (int32_t)0x7FFFFFFF : (int32_t)0x80000001;
+    return (a >= 0) ? KULUA_HUGE_VAL : KULUA_NHUGE_VAL;
   return (int32_t)(((int64_t)a * 65536LL) / (int64_t)b);
 }
 #define luai_numdiv(L,a,b)      kulua_numdiv((a),(b))
@@ -905,8 +930,12 @@ static inline int32_t kulua_numdiv (int32_t a, int32_t b) {
 int32_t kulua_numpow (int32_t base, int32_t exp);
 #define luai_numpow(L,a,b)      kulua_numpow((a),(b))
 
-/* cast through unsigned to avoid UB on negation of INT32_MIN */
-#define luai_numunm(L,a)        ((int32_t)(-(uint32_t)(a)))
+/* Negation with saturation: -INT32_MIN can't fit, saturate to HUGE_VAL */
+static inline int32_t kulua_numunm (int32_t a) {
+  if (a == (int32_t)0x80000000) return KULUA_HUGE_VAL;
+  return -a;
+}
+#define luai_numunm(L,a)        kulua_numunm(a)
 #define luai_numeq(a,b)         ((a)==(b))
 #define luai_numlt(a,b)         ((a)<(b))
 #define luai_numle(a,b)         ((a)<=(b))

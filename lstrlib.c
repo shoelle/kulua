@@ -1828,8 +1828,8 @@ static int str_unpack (lua_State *L) {
 #if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
         {  /* convert float to Q16.16 with saturation */
           double d = (double)f * 65536.0;
-          if (d > (double)0x7FFFFFFF) lua_pushnumber(L, (lua_Number)0x7FFFFFFF);
-          else if (d < (double)(int32_t)0x80000000) lua_pushnumber(L, (lua_Number)(int32_t)0x80000000);
+          if (d > (double)KULUA_HUGE_VAL) lua_pushnumber(L, (lua_Number)KULUA_HUGE_VAL);
+          else if (d < (double)KULUA_NHUGE_VAL) lua_pushnumber(L, (lua_Number)KULUA_NHUGE_VAL);
           else lua_pushnumber(L, (lua_Number)(int32_t)d);
         }
 #else
@@ -1849,8 +1849,8 @@ static int str_unpack (lua_State *L) {
 #if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
         {  /* convert double to Q16.16 with saturation */
           double d = f * 65536.0;
-          if (d > (double)0x7FFFFFFF) lua_pushnumber(L, (lua_Number)0x7FFFFFFF);
-          else if (d < (double)(int32_t)0x80000000) lua_pushnumber(L, (lua_Number)(int32_t)0x80000000);
+          if (d > (double)KULUA_HUGE_VAL) lua_pushnumber(L, (lua_Number)KULUA_HUGE_VAL);
+          else if (d < (double)KULUA_NHUGE_VAL) lua_pushnumber(L, (lua_Number)KULUA_NHUGE_VAL);
           else lua_pushnumber(L, (lua_Number)(int32_t)d);
         }
 #else

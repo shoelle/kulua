@@ -92,15 +92,16 @@ print(x)              -- 3.14159 (fine, within precision)
 -- but very precise values won't survive parse → print → parse
 ```
 
-### Addition and subtraction wrap
+### Arithmetic saturates on overflow
 
-Add/sub use unsigned wrapping (not saturation) to avoid undefined behavior in C. This means overflow wraps around silently:
+Add, sub, and mul use 64-bit intermediates and **saturate** to `math.huge` / `-math.huge` on overflow instead of wrapping:
 
 ```lua
-local x = 32000.0 + 32000.0  -- wraps to -1536.0
+local x = 32000.0 + 32000.0  -- saturates to math.huge (32767.99998)
+local y = 200.0 * 200.0      -- saturates to math.huge (40000 > Q16.16 max)
 ```
 
-Multiplication and division use 64-bit intermediates and won't overflow for values within Q16.16 range.
+This is safer for game simulations than wrapping (a position that clamps at the world edge is better than one that teleports to the opposite side).
 
 ### Math library is approximate
 
@@ -144,7 +145,7 @@ The original `makefile` is still present for reference but isn't maintained.
 cd testes && ../zig-out/bin/lua -W -e "_U=true" all.lua
 ```
 
-All 34 upstream Lua test modules pass. Tests that assume 64-bit float range are guarded behind a `_fixedpoint` flag (auto-detected via `math.huge < 100000`). Q16.16-specific tests live in `testes/fixed.lua`.
+All 34 upstream Lua test modules pass, plus `testes/fixed.lua` (Q16.16-specific assertions). Tests that assume 64-bit float range are guarded behind a `_fixedpoint` flag (auto-detected via `math.huge < 100000`).
 
 ## Source layout
 

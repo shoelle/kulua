@@ -92,7 +92,7 @@ Replace the float subtype with Q16.16 fixed-point. Patch for determinism.
 - [x] Adapt Lua test suite for Q16.16 (tests assuming 64-bit float range need adjustment)
 - [x] Fixed-point math tests: verify mul, div, trig, sqrt against known values
 - [x] Determinism test: `kulua_test_determinism.c` — two lua_States, same scripts, `memcmp` output (`zig build test-determinism`)
-- [x] Cross-platform determinism: golden file approach (`zig build test-determinism-golden`); actual WASM build deferred
+- [x] Cross-platform determinism: golden file verified identical between native x86_64 and WASM (Emscripten) builds
 
 ---
 

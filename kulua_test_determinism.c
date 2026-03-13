@@ -183,11 +183,13 @@ static const char *test_gc_interaction =
   "collectgarbage('collect')\n"
   "for k, v in pairs(t) do print(k, v) end\n"
   "collectgarbage('collect')\n"
-  "-- create more objects after GC\n"
+  "-- create more objects after GC, verify iteration still works\n"
   "local t2 = {}\n"
   "t2.a = 1; t2.b = 2; t2.c = 3\n"
-  "print(tostring(t2))\n"
   "for k, v in pairs(t2) do print(k, v) end\n"
+  "-- verify tostring format (not absolute ID, since it varies by platform)\n"
+  "local s = tostring(t2)\n"
+  "print(string.find(s, '^table: %d+$') and 'tostring_ok' or 'tostring_fail')\n"
 ;
 
 

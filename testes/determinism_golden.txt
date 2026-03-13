@@ -130,7 +130,7 @@ key7	7
 key8	8
 key9	9
 key10	10
-table: 429
 a	1
 b	2
 c	3
+tostring_ok

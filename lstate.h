@@ -404,9 +404,6 @@ union GCUnion {
   struct Proto p;
   struct lua_State th;  /* thread */
   struct UpVal upv;
-  struct RecordType rt;
-  struct Record rec;
-  struct RecordArray ra;
 };
 
 
@@ -429,12 +426,16 @@ union GCUnion {
 #define gco2p(o)  check_exp((o)->tt == LUA_VPROTO, &((cast_u(o))->p))
 #define gco2th(o)  check_exp((o)->tt == LUA_VTHREAD, &((cast_u(o))->th))
 #define gco2upv(o)	check_exp((o)->tt == LUA_VUPVAL, &((cast_u(o))->upv))
+/* Record types are not in GCUnion (RecordType has a flexible array member,
+** and including them would inflate GCUnion size).  Direct casts are safe
+** because luaC_newobj allocates the correct size and the CommonHeader is
+** layout-compatible with GCObject. */
 #define gco2rtype(o) \
-	check_exp((o)->tt == LUA_VRECORDTYPE, &((cast_u(o))->rt))
+	check_exp((o)->tt == LUA_VRECORDTYPE, cast(RecordType *, (o)))
 #define gco2rec(o) \
-	check_exp((o)->tt == LUA_VRECORD, &((cast_u(o))->rec))
+	check_exp((o)->tt == LUA_VRECORD, cast(Record *, (o)))
 #define gco2recarr(o) \
-	check_exp((o)->tt == LUA_VRECORDARRAY, &((cast_u(o))->ra))
+	check_exp((o)->tt == LUA_VRECORDARRAY, cast(RecordArray *, (o)))
 
 
 /*

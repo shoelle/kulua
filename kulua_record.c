@@ -26,19 +26,43 @@
 #include "kulua_record.h"
 
 
+/* mirrors lapi.c's local macro */
+#define ispseudo(i)	((i) <= LUA_REGISTRYINDEX)
+
+
 /*
-** Get TValue at stack index (reproduces lapi.c's index2value for
-** positive indices and pseudo-indices we don't use).
+** Get TValue at stack index.  Mirrors lapi.c's static index2value
+** (which cannot be called from outside lapi.c).  Handles positive,
+** negative, and pseudo-indices so the C API functions work correctly
+** with any valid stack index.
 */
 static const TValue *rec_index2value (lua_State *L, int idx) {
+  CallInfo *ci = L->ci;
   if (idx > 0) {
-    StkId o = L->ci->func.p + idx;
-    api_check(L, idx <= L->ci->top.p - (L->ci->func.p + 1), "unacceptable index");
-    return s2v(o);
+    StkId o = ci->func.p + idx;
+    api_check(L, idx <= ci->top.p - (ci->func.p + 1), "unacceptable index");
+    if (o >= L->top.p) return &G(L)->nilvalue;
+    else return s2v(o);
   }
-  else {  /* negative index */
-    api_check(L, -idx <= L->top.p - (L->ci->func.p + 1), "invalid index");
+  else if (!ispseudo(idx)) {  /* negative index */
+    api_check(L, idx != 0 && -idx <= L->top.p - (ci->func.p + 1),
+                 "invalid index");
     return s2v(L->top.p + idx);
+  }
+  else if (idx == LUA_REGISTRYINDEX)
+    return &G(L)->l_registry;
+  else {  /* upvalues */
+    idx = LUA_REGISTRYINDEX - idx;
+    api_check(L, idx <= MAXUPVAL + 1, "upvalue index too large");
+    if (ttisCclosure(s2v(ci->func.p))) {
+      CClosure *func = clCvalue(s2v(ci->func.p));
+      return (idx <= func->nupvalues) ? &func->upvalue[idx-1]
+                                      : &G(L)->nilvalue;
+    }
+    else {
+      api_check(L, ttislcf(s2v(ci->func.p)), "caller not a C function");
+      return &G(L)->nilvalue;
+    }
   }
 }
 
@@ -355,7 +379,9 @@ static int recordtype_index (lua_State *L) {
 static int recordtype_newindex (lua_State *L) {
   RecordType *rt = check_recordtype(L, 1);
   const TValue *kv = rec_index2value(L, 2);
-  StkId valslot = L->ci->func.p + 3;  /* writable slot for value */
+  /* __newindex receives (self, key, value) as args 1-2-3; we need a
+  ** writable StkId for luaH_set, so access the stack slot directly. */
+  StkId valslot = L->ci->func.p + 3;
   if (!ttisstring(kv))
     luaG_runerror(L, "recordtype index must be a string");
   if (rt->metatable == NULL)
@@ -538,6 +564,7 @@ int kulua_record_constructor (lua_State *L) {
   }
 
   rt->metatable = inst_mt;
+  luaC_objbarrier(L, rt, inst_mt);
 
   /* Pop inst_mt, leave RecordType on top */
   L->top.p--;

@@ -910,32 +910,115 @@ static inline int32_t kulua_nummul (int32_t a, int32_t b) {
   if (r < (int64_t)KULUA_NHUGE_VAL) return KULUA_NHUGE_VAL;
   return (int32_t)r;
 }
-#define luai_numadd(L,a,b)      kulua_numadd((a),(b))
-#define luai_numsub(L,a,b)      kulua_numsub((a),(b))
-#define luai_nummul(L,a,b)      kulua_nummul((a),(b))
-/* Division by zero: return max/min as substitute for ±inf */
+/* Division by zero: return max/min as substitute for ±inf.
+** Non-zero division: saturate on overflow (e.g. large / tiny). */
 static inline int32_t kulua_numdiv (int32_t a, int32_t b) {
   if (b == 0)
     return (a >= 0) ? KULUA_HUGE_VAL : KULUA_NHUGE_VAL;
-  return (int32_t)(((int64_t)a * 65536LL) / (int64_t)b);
+  int64_t r = ((int64_t)a * 65536LL) / (int64_t)b;
+  if (r > (int64_t)KULUA_HUGE_VAL) return KULUA_HUGE_VAL;
+  if (r < (int64_t)KULUA_NHUGE_VAL) return KULUA_NHUGE_VAL;
+  return (int32_t)r;
 }
-#define luai_numdiv(L,a,b)      kulua_numdiv((a),(b))
+/* Negation with saturation: -INT32_MIN can't fit, saturate to HUGE_VAL */
+static inline int32_t kulua_numunm (int32_t a) {
+  if (a == (int32_t)0x80000000) return KULUA_HUGE_VAL;
+  return -a;
+}
+int32_t kulua_numpow (int32_t base, int32_t exp);
+
+/*
+** Saturation warning support.
+** Warn variants of arithmetic functions emit a warning via lua_State
+** when an operation saturates (overflows Q16.16 range).
+** The warning is only delivered when warnings are enabled (-W flag).
+** Hot path cost: two branch-predicted comparisons (almost never taken).
+*/
+struct lua_State;
+void kulua_warnsaturate (struct lua_State *L, const char *op);
+
+static inline int32_t kulua_int2num_warn (struct lua_State *L, long long i) {
+  if (i > (long long)0x7FFF) {
+    kulua_warnsaturate(L, "int-to-float coercion");
+    return KULUA_HUGE_VAL;
+  }
+  if (i < (long long)-0x8000) {
+    kulua_warnsaturate(L, "int-to-float coercion");
+    return KULUA_NHUGE_VAL;
+  }
+  return (int32_t)(i * 65536LL);
+}
+#define luai_int2num_w(L,i)  kulua_int2num_warn(L, (long long)(i))
+
+static inline int32_t kulua_numadd_w (struct lua_State *L,
+                                       int32_t a, int32_t b) {
+  int64_t r = (int64_t)a + (int64_t)b;
+  if (r > (int64_t)KULUA_HUGE_VAL) {
+    kulua_warnsaturate(L, "addition"); return KULUA_HUGE_VAL;
+  }
+  if (r < (int64_t)KULUA_NHUGE_VAL) {
+    kulua_warnsaturate(L, "addition"); return KULUA_NHUGE_VAL;
+  }
+  return (int32_t)r;
+}
+static inline int32_t kulua_numsub_w (struct lua_State *L,
+                                       int32_t a, int32_t b) {
+  int64_t r = (int64_t)a - (int64_t)b;
+  if (r > (int64_t)KULUA_HUGE_VAL) {
+    kulua_warnsaturate(L, "subtraction"); return KULUA_HUGE_VAL;
+  }
+  if (r < (int64_t)KULUA_NHUGE_VAL) {
+    kulua_warnsaturate(L, "subtraction"); return KULUA_NHUGE_VAL;
+  }
+  return (int32_t)r;
+}
+static inline int32_t kulua_nummul_w (struct lua_State *L,
+                                       int32_t a, int32_t b) {
+  int64_t r = ((int64_t)a * (int64_t)b) >> 16;
+  if (r > (int64_t)KULUA_HUGE_VAL) {
+    kulua_warnsaturate(L, "multiplication"); return KULUA_HUGE_VAL;
+  }
+  if (r < (int64_t)KULUA_NHUGE_VAL) {
+    kulua_warnsaturate(L, "multiplication"); return KULUA_NHUGE_VAL;
+  }
+  return (int32_t)r;
+}
+static inline int32_t kulua_numdiv_w (struct lua_State *L,
+                                       int32_t a, int32_t b) {
+  if (b == 0) {
+    kulua_warnsaturate(L, "division by zero");
+    return (a >= 0) ? KULUA_HUGE_VAL : KULUA_NHUGE_VAL;
+  }
+  int64_t r = ((int64_t)a * 65536LL) / (int64_t)b;
+  if (r > (int64_t)KULUA_HUGE_VAL) {
+    kulua_warnsaturate(L, "division"); return KULUA_HUGE_VAL;
+  }
+  if (r < (int64_t)KULUA_NHUGE_VAL) {
+    kulua_warnsaturate(L, "division"); return KULUA_NHUGE_VAL;
+  }
+  return (int32_t)r;
+}
+static inline int32_t kulua_numunm_w (struct lua_State *L, int32_t a) {
+  if (a == (int32_t)0x80000000) {
+    kulua_warnsaturate(L, "negation");
+    return KULUA_HUGE_VAL;
+  }
+  return -a;
+}
+int32_t kulua_numpow_w (struct lua_State *L, int32_t base, int32_t exp);
+
+#define luai_numadd(L,a,b)      kulua_numadd_w(L,(a),(b))
+#define luai_numsub(L,a,b)      kulua_numsub_w(L,(a),(b))
+#define luai_nummul(L,a,b)      kulua_nummul_w(L,(a),(b))
+#define luai_numdiv(L,a,b)      kulua_numdiv_w(L,(a),(b))
 #define luai_numidiv(L,a,b) \
   ((void)L, l_floor(luai_numdiv(L,a,b)))
 #define luai_nummod(L,a,b,m) \
   { (void)L; lua_Number _q = luai_numidiv(L,(a),(b)); \
     (m) = (a) - luai_nummul(L,_q,(b)); \
     if (((m) > 0) ? (b) < 0 : ((m) < 0 && (b) > 0)) (m) += (b); }
-
-int32_t kulua_numpow (int32_t base, int32_t exp);
-#define luai_numpow(L,a,b)      kulua_numpow((a),(b))
-
-/* Negation with saturation: -INT32_MIN can't fit, saturate to HUGE_VAL */
-static inline int32_t kulua_numunm (int32_t a) {
-  if (a == (int32_t)0x80000000) return KULUA_HUGE_VAL;
-  return -a;
-}
-#define luai_numunm(L,a)        kulua_numunm(a)
+#define luai_numpow(L,a,b)      kulua_numpow_w(L,(a),(b))
+#define luai_numunm(L,a)        kulua_numunm_w(L,a)
 #define luai_numeq(a,b)         ((a)==(b))
 #define luai_numlt(a,b)         ((a)<(b))
 #define luai_numle(a,b)         ((a)<=(b))

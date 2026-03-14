@@ -94,7 +94,7 @@ print(x)              -- 3.14159 (fine, within precision)
 
 ### Arithmetic saturates on overflow
 
-Add, sub, and mul use 64-bit intermediates and **saturate** to `math.huge` / `-math.huge` on overflow instead of wrapping:
+Add, sub, mul, and div use 64-bit intermediates and **saturate** to `math.huge` / `-math.huge` on overflow instead of wrapping:
 
 ```lua
 local x = 32000.0 + 32000.0  -- saturates to math.huge (32767.99998)
@@ -102,6 +102,16 @@ local y = 200.0 * 200.0      -- saturates to math.huge (40000 > Q16.16 max)
 ```
 
 This is safer for game simulations than wrapping (a position that clamps at the world edge is better than one that teleports to the opposite side).
+
+With warnings enabled (`-W` flag), Kulua emits a warning whenever saturation occurs:
+
+```
+Lua warning: fixed-point overflow in addition
+Lua warning: fixed-point overflow in int-to-float coercion
+Lua warning: fixed-point overflow in division by zero
+```
+
+This covers int-to-float coercion, all arithmetic operations (add, sub, mul, div, pow, negation), and division by zero. Useful for catching accidental overflows during development.
 
 ### Math library is approximate
 

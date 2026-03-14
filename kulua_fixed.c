@@ -17,6 +17,17 @@
 #include <string.h>
 
 #include "lua.h"
+#include "lstate.h"
+
+
+/* ===================================================================
+** Saturation warning
+** =================================================================== */
+
+void kulua_warnsaturate (lua_State *L, const char *op) {
+  luaE_warning(L, "fixed-point overflow in ", 1);
+  luaE_warning(L, op, 0);
+}
 
 
 /* ===================================================================
@@ -693,7 +704,13 @@ int32_t kulua_frexp (int32_t x, int *exp) {
 }
 
 
-/* pow: already defined above as kulua_numpow */
+/* pow with saturation warning */
+int32_t kulua_numpow_w (lua_State *L, int32_t base, int32_t exp) {
+  int32_t r = kulua_numpow(base, exp);
+  if (r == KULUA_HUGE_VAL || r == KULUA_NHUGE_VAL)
+    kulua_warnsaturate(L, "exponentiation");
+  return r;
+}
 
 
 #endif  /* LUA_FLOAT_FIXED */

@@ -57,6 +57,11 @@ typedef enum {
 	(ttisfloat(o) ? ((n) = fltvalue(o), 1) : \
 	(ttisinteger(o) ? ((n) = luai_int2num(ivalue(o)), 1) : 0))
 
+/* variant with saturation warning (requires lua_State *L) */
+#define tonumberns_w(o,n,L) \
+	(ttisfloat(o) ? ((n) = fltvalue(o), 1) : \
+	(ttisinteger(o) ? ((n) = luai_int2num_w(L, ivalue(o)), 1) : 0))
+
 
 /* convert an object to an integer (including string coercion) */
 #define tointeger(o,i) \

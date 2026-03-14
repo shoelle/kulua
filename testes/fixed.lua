@@ -247,6 +247,69 @@ do
 end
 
 
+-- saturation warnings (requires test library for @store)
+if T then
+  print "testing saturation warnings"
+
+  local function clearwarn () rawset(_G, "_WARN", false) end
+
+  -- enable warning capture
+  warn("@store"); clearwarn()
+
+  -- int-to-float coercion warning
+  local big = 100000 + 0.0  -- saturates
+  assert(big == math.huge)
+  assert(type(_WARN) == "string")
+  assert(string.find(_WARN, "int%-to%-float coercion"),
+         "expected int-to-float warning, got: " .. tostring(_WARN))
+  clearwarn()
+
+  -- addition overflow warning
+  local sum = 30000.0 + 30000.0  -- saturates
+  assert(sum == math.huge)
+  assert(string.find(_WARN, "addition"),
+         "expected addition warning, got: " .. tostring(_WARN))
+  clearwarn()
+
+  -- subtraction overflow warning
+  local diff = (-30000.0) - 30000.0  -- saturates
+  assert(diff == -math.huge)
+  assert(string.find(_WARN, "subtraction"),
+         "expected subtraction warning, got: " .. tostring(_WARN))
+  clearwarn()
+
+  -- multiplication overflow warning
+  local prod = 200.0 * 200.0  -- 40000 > max
+  assert(prod == math.huge)
+  assert(string.find(_WARN, "multiplication"),
+         "expected multiplication warning, got: " .. tostring(_WARN))
+  clearwarn()
+
+  -- division by zero warning
+  local dbz = 1.0 / 0.0
+  assert(dbz == math.huge)
+  assert(string.find(_WARN, "division by zero"),
+         "expected division by zero warning, got: " .. tostring(_WARN))
+  clearwarn()
+
+  -- no warning for normal arithmetic
+  local ok = 1.5 + 2.5
+  assert(ok == 4.0)
+  assert(_WARN == false, "unexpected warning for normal add")
+
+  ok = 10.0 * 3.0
+  assert(ok == 30.0)
+  assert(_WARN == false, "unexpected warning for normal mul")
+
+  ok = 10.0 / 2.0
+  assert(ok == 5.0)
+  assert(_WARN == false, "unexpected warning for normal div")
+
+  -- restore normal warning mode
+  warn("@normal")
+end
+
+
 -- pi constant
 do
   assert(math.pi > 3.14 and math.pi < 3.15)

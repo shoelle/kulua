@@ -270,7 +270,7 @@ static int forprep (lua_State *L, StkId ra) {
 ** true iff the loop must continue. (The integer case is
 ** written online with opcode OP_FORLOOP, for performance.)
 */
-static int floatforloop (StkId ra) {
+static int floatforloop (lua_State *L, StkId ra) {
   lua_Number step = fltvalue(s2v(ra + 1));
   lua_Number limit = fltvalue(s2v(ra));
   lua_Number idx = fltvalue(s2v(ra + 2));  /* control variable */
@@ -962,7 +962,7 @@ void luaV_finishOp (lua_State *L) {
 */
 #define op_arithf_aux(L,v1,v2,fop) {  \
   lua_Number n1; lua_Number n2;  \
-  if (tonumberns(v1, n1) && tonumberns(v2, n2)) {  \
+  if (tonumberns_w(v1, n1, L) && tonumberns_w(v2, n2, L)) {  \
     StkId ra = RA(i);  \
     pc++; setfltvalue(s2v(ra), fop(L, n1, n2));  \
   }}
@@ -1244,7 +1244,7 @@ void luaV_execute (lua_State *L, CallInfo *ci) {
       vmcase(OP_LOADF) {
         StkId ra = RA(i);
         int b = GETARG_sBx(i);
-        setfltvalue(s2v(ra), luai_int2num(b));
+        setfltvalue(s2v(ra), luai_int2num_w(L, b));
         vmbreak;
       }
       vmcase(OP_LOADK) {
@@ -1591,7 +1591,7 @@ void luaV_execute (lua_State *L, CallInfo *ci) {
           lua_Integer ib = ivalue(rb);
           setivalue(s2v(ra), intop(-, 0, ib));
         }
-        else if (tonumberns(rb, nb)) {
+        else if (tonumberns_w(rb, nb, L)) {
           setfltvalue(s2v(ra), luai_numunm(L, nb));
         }
         else
@@ -1841,7 +1841,7 @@ void luaV_execute (lua_State *L, CallInfo *ci) {
             pc -= GETARG_Bx(i);  /* jump back */
           }
         }
-        else if (floatforloop(ra))  /* float loop */
+        else if (floatforloop(L, ra))  /* float loop */
           pc -= GETARG_Bx(i);  /* jump back */
         updatetrap(ci);  /* allows a signal to break the loop */
         vmbreak;

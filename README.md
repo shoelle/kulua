@@ -347,8 +347,7 @@ After merging upstream, grep for new `cast_num(intvalue)` sites in the VM and co
 3. Check `KULUA_ONE` — anywhere upstream assumes float `1.0` for ceiling/floor/rounding logic may need the constant.
 4. Rebuild: `zig build`
 5. Run tests: `cd testes && ../zig-out/bin/lua -W -e "_U=true" all.lua`
-6. Run determinism test: `zig build test-determinism-golden`
-7. If upstream changed table internals (`ltable.c`), manually verify insertion-order iteration survives rehash with `testes/fixed.lua`.
+6. If upstream changed table internals (`ltable.c`), manually verify insertion-order iteration survives rehash with `testes/fixed.lua`.
 
 ## References
 

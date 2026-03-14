@@ -830,6 +830,14 @@ LUA_API int lua_getmetatable (lua_State *L, int objindex) {
     case LUA_TUSERDATA:
       mt = uvalue(obj)->metatable;
       break;
+    case LUA_TRECORD:
+      if (ttisrecord(obj))
+        mt = recvalue(obj)->rtype->metatable;
+      else if (ttisrecordarray(obj))
+        mt = recarrvalue(obj)->rtype->metatable;
+      else  /* RecordType */
+        mt = G(L)->mt[LUA_TRECORD];
+      break;
     default:
       mt = G(L)->mt[ttype(obj)];
       break;

@@ -137,6 +137,139 @@ These return Q16.16 floats. Time differences larger than ~32768 seconds (~9 hour
 
 Packing Q16.16 values into `f` (float) or `d` (double) format converts appropriately. Unpacking saturates if the stored float exceeds Q16.16 range.
 
+## Record types
+
+Kulua adds first-class C-struct-like types for sharing gameplay data between Lua and C engine code (physics, networking) via direct memory access — no serialization, no getter/setter bindings.
+
+Records are flat, packed byte buffers with named typed fields. Both Lua and C can read/write the same memory.
+
+### Defining a record type
+
+Pass a table of `name = type` pairs to the `record` constructor. Fields are laid out in declaration order with no alignment padding.
+
+```lua
+local Entity = record {
+  x      = fx,     -- Q16.16 fixed-point (4 bytes)
+  y      = fx,
+  health = i16,    -- signed 16-bit int (2 bytes)
+  team   = u8,     -- unsigned 8-bit int (1 byte)
+  alive  = bool,   -- boolean (1 byte)
+}
+-- Entity is 12 bytes packed: 4+4+2+1+1
+```
+
+Nine field types are available:
+
+| Type | Bytes | Lua value | Range |
+|------|-------|-----------|-------|
+| `fx` | 4 | `lua_Number` (Q16.16) | ±32767.99998 |
+| `i8` | 1 | integer | -128 to 127 |
+| `u8` | 1 | integer | 0 to 255 |
+| `i16` | 2 | integer | -32768 to 32767 |
+| `u16` | 2 | integer | 0 to 65535 |
+| `i32` | 4 | integer | -2³¹ to 2³¹-1 |
+| `u32` | 4 | integer | 0 to 2³²-1 |
+| `i64` | 8 | integer (`lua_Integer`) | full 64-bit range |
+| `bool` | 1 | boolean | `true`/`false` |
+
+### Creating instances
+
+Call the record type like a function. Instances are zero-initialized.
+
+```lua
+local e = Entity()
+e.x = 100
+e.health = 50
+e.alive = true
+
+print(e.x)       -- 100
+print(e.alive)   -- true
+```
+
+### Record arrays
+
+Index the record type with a count to create a contiguous array. Elements are 1-based.
+
+```lua
+local enemies = Entity[100]
+print(#enemies)  -- 100
+
+enemies[1].x = 500
+enemies[1].alive = true
+
+for i = 1, #enemies do
+  enemies[i].health = 100
+end
+```
+
+Array access returns a lightweight view into the array's memory. The view keeps the parent array alive for GC purposes.
+
+### Methods
+
+Define methods on the record type. They're available on all instances via the metatable.
+
+```lua
+function Entity:is_alive()
+  return self.alive and self.health > 0
+end
+
+function Entity:damage(amount)
+  self.health = self.health - amount
+  if self.health <= 0 then
+    self.alive = false
+  end
+end
+
+local e = Entity()
+e.health = 100
+e.alive = true
+e:damage(30)
+```
+
+### Type checking
+
+Each record variant has a distinct `type()` string:
+
+```lua
+type(Entity)       -- "recordtype"
+type(Entity())     -- "record"
+type(Entity[10])   -- "recordarray"
+```
+
+The `#` operator returns the byte size for types and instances, and the element count for arrays:
+
+```lua
+#Entity            -- 12 (byte size)
+#Entity()          -- 12 (same)
+#Entity[10]        -- 10 (element count)
+```
+
+### C API
+
+Access record data from C for zero-copy interop:
+
+```c
+// Get raw pointer to a record's data buffer
+void *data = lua_torecorddata(L, idx, &len);
+
+// Get pointer to element i (0-indexed) of a record array
+void *elem = lua_torecordarraydata(L, idx, i, &stride);
+
+// Type checking
+lua_isrecord(L, idx);
+lua_isrecordarray(L, idx);
+lua_isrecordtype(L, idx);
+```
+
+Fields are packed with no alignment padding, so C structs must use `#pragma pack(1)` or equivalent to match the layout.
+
+### Error handling
+
+- Assigning the wrong type to a field (e.g., a string to an integer field) raises an error
+- Array access out of bounds (index < 1 or > count) raises an error
+- An empty `record {}` raises an error
+- Invalid field type constants raise an error
+
 ## Build options
 
 ```bash
@@ -155,7 +288,7 @@ The original `makefile` is still present for reference but isn't maintained.
 cd testes && ../zig-out/bin/lua -W -e "_U=true" all.lua
 ```
 
-All 34 upstream Lua test modules pass, plus `testes/fixed.lua` (Q16.16-specific assertions). Tests that assume 64-bit float range are guarded behind a `_fixedpoint` flag (auto-detected via `math.huge < 100000`).
+All 34 upstream Lua test modules pass, plus `testes/fixed.lua` (Q16.16-specific assertions) and `testes/record.lua` (record type tests). Tests that assume 64-bit float range are guarded behind a `_fixedpoint` flag (auto-detected via `math.huge < 100000`).
 
 ## Source layout
 
@@ -165,6 +298,7 @@ All source lives in the repo root.
 |------|-----------|
 | Config | `luaconf.h`, `lua.h`, `llimits.h` |
 | Fixed-point | `kulua_fixed.c` (Q16.16 math, parsing, formatting) |
+| Records | `kulua_record.c`, `kulua_record.h` (record types, arrays, C API) |
 | VM | `lvm.c`, `ldo.c`, `lopcodes.h` |
 | Compiler | `lparser.c`, `lcode.c`, `llex.c` |
 | Objects/tables | `lobject.c`, `ltable.c`, `lstring.c` |
@@ -179,13 +313,15 @@ Kulua is designed to sit on top of upstream Lua with minimal friction. Most chan
 
 **Zero conflict** — new standalone files, never touch upstream:
 - `kulua_fixed.c` (all Q16.16 math, parsing, trig LUTs)
+- `kulua_record.c`, `kulua_record.h` (record types, arrays, views)
 - `build.zig` (parallel to upstream makefile)
 
-**Low conflict** — guarded `#if` blocks appended to upstream code:
+**Low conflict** — guarded `#if` blocks or additive cases appended to upstream code:
 - `luaconf.h` — Q16.16 config section at the end of each upstream block
 - `lbaselib.c`, `lcode.c`, `lundump.h`, `lmathlib.c`, `lstrlib.c`, `loslib.c` — isolated `#if` blocks
 - `lstate.h`, `lstate.c`, `lapi.c` — new fields/functions, guarded
 - `lobject.c` — alternate `tostringbuffFloat` implementation behind `#if`
+- `lgc.c`, `ltm.c`, `lvm.c` — new `case` branches for `LUA_TRECORD` variants (record types)
 
 **Medium conflict** — struct field additions (guarded, but interact with layout):
 - `lobject.h` — `kulua_objid` in `CommonHeader`, `insert_next` in `Node`, `insert_head`/`insert_tail` in `Table`

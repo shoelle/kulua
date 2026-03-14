@@ -20,6 +20,7 @@
 #include "lauxlib.h"
 #include "lualib.h"
 #include "llimits.h"
+#include "kulua_record.h"
 
 
 static int luaB_print (lua_State *L) {
@@ -268,7 +269,17 @@ static int luaB_collectgarbage (lua_State *L) {
 static int luaB_type (lua_State *L) {
   int t = lua_type(L, 1);
   luaL_argcheck(L, t != LUA_TNONE, 1, "value expected");
-  lua_pushstring(L, lua_typename(L, t));
+  if (t == LUA_TRECORD) {
+    /* Return variant-specific names for record types */
+    if (lua_isrecordtype(L, 1))
+      lua_pushliteral(L, "recordtype");
+    else if (lua_isrecordarray(L, 1))
+      lua_pushliteral(L, "recordarray");
+    else
+      lua_pushliteral(L, "record");
+  }
+  else
+    lua_pushstring(L, lua_typename(L, t));
   return 1;
 }
 
@@ -562,6 +573,20 @@ LUAMOD_API int luaopen_base (lua_State *L) {
   /* set global _VERSION */
   lua_pushliteral(L, LUA_VERSION);
   lua_setfield(L, -2, "_VERSION");
+  /* register record constructor and field type constants */
+  lua_pushcfunction(L, kulua_record_constructor);
+  lua_setfield(L, -2, "record");
+  lua_pushinteger(L, KULUA_FIELD_FX);   lua_setfield(L, -2, "fx");
+  lua_pushinteger(L, KULUA_FIELD_I16);  lua_setfield(L, -2, "i16");
+  lua_pushinteger(L, KULUA_FIELD_U16);  lua_setfield(L, -2, "u16");
+  lua_pushinteger(L, KULUA_FIELD_I8);   lua_setfield(L, -2, "i8");
+  lua_pushinteger(L, KULUA_FIELD_U8);   lua_setfield(L, -2, "u8");
+  lua_pushinteger(L, KULUA_FIELD_BOOL); lua_setfield(L, -2, "bool");
+  lua_pushinteger(L, KULUA_FIELD_I32);  lua_setfield(L, -2, "i32");
+  lua_pushinteger(L, KULUA_FIELD_U32);  lua_setfield(L, -2, "u32");
+  lua_pushinteger(L, KULUA_FIELD_I64);  lua_setfield(L, -2, "i64");
+  /* initialize shared RecordType metatable */
+  kulua_record_init(L);
   return 1;
 }
 

@@ -154,6 +154,22 @@ static l_mem objsize (GCObject *o) {
       res = sizeof(UpVal);
       break;
     }
+    case LUA_VRECORDTYPE: {
+      RecordType *rt = gco2rtype(o);
+      res = sizerecordtype(rt->nfields);
+      break;
+    }
+    case LUA_VRECORD: {
+      Record *rec = gco2rec(o);
+      res = rec->parent ? sizerecordview()
+                        : sizerecordstandalone(rec->rtype->record_size);
+      break;
+    }
+    case LUA_VRECORDARRAY: {
+      RecordArray *ra = gco2recarr(o);
+      res = sizerecordarray(ra->count, ra->rtype->record_size);
+      break;
+    }
     default: res = 0; lua_assert(0);
   }
   return cast(l_mem, res);
@@ -172,6 +188,8 @@ static GCObject **getgclist (GCObject *o) {
       lua_assert(u->nuvalue > 0);
       return &u->gclist;
     }
+    case LUA_VRECORDTYPE: return &gco2rtype(o)->gclist;
+    case LUA_VRECORDARRAY: return &gco2recarr(o)->gclist;
     default: lua_assert(0); return 0;
   }
 }
@@ -356,6 +374,13 @@ static void reallymarkobject (global_State *g, GCObject *o) {
       markvalue(g, uv->v.p);  /* mark its content */
       break;
     }
+    case LUA_VRECORD: {
+      Record *rec = gco2rec(o);
+      markobject(g, rec->rtype);       /* mark type descriptor */
+      markobjectN(g, rec->parent);     /* mark parent array (views) */
+      set2black(o);                    /* no Lua refs in data */
+      break;
+    }
     case LUA_VUSERDATA: {
       Udata *u = gco2u(o);
       if (u->nuvalue == 0) {  /* no user values? */
@@ -366,7 +391,8 @@ static void reallymarkobject (global_State *g, GCObject *o) {
       /* else... */
     }  /* FALLTHROUGH */
     case LUA_VLCL: case LUA_VCCL: case LUA_VTABLE:
-    case LUA_VTHREAD: case LUA_VPROTO: {
+    case LUA_VTHREAD: case LUA_VPROTO:
+    case LUA_VRECORDTYPE: case LUA_VRECORDARRAY: {
       linkobjgclist(o, g->gray);  /* to be visited later */
       break;
     }
@@ -723,6 +749,24 @@ static l_mem traversethread (global_State *g, lua_State *th) {
 }
 
 
+static l_mem traverserecordtype (global_State *g, RecordType *rt) {
+  int i;
+  markobjectN(g, rt->name);
+  markobjectN(g, rt->metatable);
+  for (i = 0; i < rt->nfields; i++)
+    markobject(g, rt->fields[i].name);
+  genlink(g, obj2gco(rt));
+  return 1 + rt->nfields;
+}
+
+
+static l_mem traverserecordarray (global_State *g, RecordArray *ra) {
+  markobject(g, ra->rtype);
+  genlink(g, obj2gco(ra));
+  return 1;
+}
+
+
 /*
 ** traverse one gray object, turning it to black. Return an estimate
 ** of the number of slots traversed.
@@ -738,6 +782,8 @@ static l_mem propagatemark (global_State *g) {
     case LUA_VCCL: return traverseCclosure(g, gco2ccl(o));
     case LUA_VPROTO: return traverseproto(g, gco2p(o));
     case LUA_VTHREAD: return traversethread(g, gco2th(o));
+    case LUA_VRECORDTYPE: return traverserecordtype(g, gco2rtype(o));
+    case LUA_VRECORDARRAY: return traverserecordarray(g, gco2recarr(o));
     default: lua_assert(0); return 0;
   }
 }
@@ -877,6 +923,23 @@ static void freeobj (lua_State *L, GCObject *o) {
       if (ts->shrlen == LSTRMEM)  /* must free external string? */
         (*ts->falloc)(ts->ud, ts->contents, ts->u.lnglen + 1, 0);
       luaM_freemem(L, ts, luaS_sizelngstr(ts->u.lnglen, ts->shrlen));
+      break;
+    }
+    case LUA_VRECORDTYPE: {
+      RecordType *rt = gco2rtype(o);
+      luaM_freemem(L, o, sizerecordtype(rt->nfields));
+      break;
+    }
+    case LUA_VRECORD: {
+      Record *rec = gco2rec(o);
+      size_t sz = rec->parent ? sizerecordview()
+                              : sizerecordstandalone(rec->rtype->record_size);
+      luaM_freemem(L, o, sz);
+      break;
+    }
+    case LUA_VRECORDARRAY: {
+      RecordArray *ra = gco2recarr(o);
+      luaM_freemem(L, o, sizerecordarray(ra->count, ra->rtype->record_size));
       break;
     }
     default: lua_assert(0);

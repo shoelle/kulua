@@ -31,6 +31,7 @@ LUAI_DDEF const char *const luaT_typenames_[LUA_TOTALTYPES] = {
   "no value",
   "nil", "boolean", udatatypename, "number",
   "string", "table", "function", udatatypename, "thread",
+  "record",
   "upvalue", "proto" /* these last cases are used for tests only */
 };
 
@@ -77,6 +78,16 @@ const TValue *luaT_gettmbyobj (lua_State *L, const TValue *o, TMS event) {
     case LUA_TUSERDATA:
       mt = uvalue(o)->metatable;
       break;
+    case LUA_TRECORD:
+      /* Variant-aware: Record/RecordArray use per-type metatable,
+      ** RecordType uses the shared G(L)->mt[LUA_TRECORD] */
+      if (ttisrecord(o))
+        mt = recvalue(o)->rtype->metatable;
+      else if (ttisrecordarray(o))
+        mt = recarrvalue(o)->rtype->metatable;
+      else  /* RecordType */
+        mt = G(L)->mt[LUA_TRECORD];
+      break;
     default:
       mt = G(L)->mt[ttype(o)];
   }
@@ -96,6 +107,14 @@ const char *luaT_objtypename (lua_State *L, const TValue *o) {
     if (ttisstring(name))  /* is '__name' a string? */
       return getstr(tsvalue(name));  /* use it as type name */
   }
+  /* Record variants have distinct type names */
+  if (ttisrecordtype(o)) return "recordtype";
+  if (ttisrecord(o)) {
+    Record *rec = recvalue(o);
+    if (rec->rtype->name) return getstr(rec->rtype->name);
+    return "record";
+  }
+  if (ttisrecordarray(o)) return "recordarray";
   return ttypename(ttype(o));  /* else use standard type name */
 }
 

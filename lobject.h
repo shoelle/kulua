@@ -537,6 +537,118 @@ typedef struct Udata0 {
 
 /*
 ** {==================================================================
+** Records
+** ===================================================================
+*/
+
+/* Record field type constants */
+#define KULUA_FIELD_FX    1   /* int32_t, Q16.16 fixed-point, 4 bytes */
+#define KULUA_FIELD_I16   2   /* int16_t, 2 bytes */
+#define KULUA_FIELD_U16   3   /* uint16_t, 2 bytes */
+#define KULUA_FIELD_I8    4   /* int8_t, 1 byte */
+#define KULUA_FIELD_U8    5   /* uint8_t, 1 byte */
+#define KULUA_FIELD_BOOL  6   /* uint8_t, 1 byte, boolean */
+#define KULUA_FIELD_I32   7   /* int32_t, 4 bytes */
+#define KULUA_FIELD_U32   8   /* uint32_t, 4 bytes */
+#define KULUA_FIELD_I64   9   /* int64_t, 8 bytes */
+
+#define KULUA_FIELD_MAX   9
+
+
+/* Variant tags */
+#define LUA_VRECORDTYPE   makevariant(LUA_TRECORD, 0)
+#define LUA_VRECORD       makevariant(LUA_TRECORD, 1)
+#define LUA_VRECORDARRAY  makevariant(LUA_TRECORD, 2)
+
+
+/* Type test macros */
+#define ttisrecordtype(o)  checktag((o), ctb(LUA_VRECORDTYPE))
+#define ttisrecord(o)      checktag((o), ctb(LUA_VRECORD))
+#define ttisrecordarray(o) checktag((o), ctb(LUA_VRECORDARRAY))
+#define ttisanyrecord(o)   checktype((o), LUA_TRECORD)
+
+
+typedef struct RecordField {
+  TString *name;
+  lu_byte type;        /* KULUA_FIELD_* constant */
+  uint16_t offset;     /* byte offset in record data */
+  uint16_t size;       /* 1, 2, 4, or 8 */
+} RecordField;
+
+typedef struct RecordType {
+  CommonHeader;
+  uint16_t nfields;
+  uint16_t record_size;     /* total bytes per instance */
+  TString *name;            /* optional type name (for tostring) */
+  struct Table *metatable;  /* per-type metatable, shared by instances */
+  GCObject *gclist;
+  RecordField fields[1];    /* variable-length: nfields entries */
+} RecordType;
+
+typedef struct Record {
+  CommonHeader;
+  struct RecordType *rtype;
+  GCObject *parent;         /* NULL=standalone, RecordArray* for views */
+  uint8_t *data;            /* inline data (standalone) or into parent */
+} Record;
+
+typedef struct RecordArray {
+  CommonHeader;
+  struct RecordType *rtype;
+  uint32_t count;
+  GCObject *gclist;
+  uint8_t data[1];          /* count * rtype->record_size bytes */
+} RecordArray;
+
+
+/* Value accessors */
+#define rtypevalue(o)  check_exp(ttisrecordtype(o), \
+                                 gco2rtype(val_(o).gc))
+#define recvalue(o)    check_exp(ttisrecord(o), gco2rec(val_(o).gc))
+#define recarrvalue(o) check_exp(ttisrecordarray(o), \
+                                 gco2recarr(val_(o).gc))
+
+#define setrtypevalue(L,obj,x) \
+  { TValue *io=(obj); RecordType *x_=(x); \
+    val_(io).gc = obj2gco(x_); settt_(io, ctb(LUA_VRECORDTYPE)); \
+    checkliveness(L,io); }
+
+#define setrtypevalue2s(L,o,t)  setrtypevalue(L,s2v(o),t)
+
+#define setrecvalue(L,obj,x) \
+  { TValue *io=(obj); Record *x_=(x); \
+    val_(io).gc = obj2gco(x_); settt_(io, ctb(LUA_VRECORD)); \
+    checkliveness(L,io); }
+
+#define setrecvalue2s(L,o,r)  setrecvalue(L,s2v(o),r)
+
+#define setrecarrvalue(L,obj,x) \
+  { TValue *io=(obj); RecordArray *x_=(x); \
+    val_(io).gc = obj2gco(x_); settt_(io, ctb(LUA_VRECORDARRAY)); \
+    checkliveness(L,io); }
+
+#define setrecarrvalue2s(L,o,a)  setrecarrvalue(L,s2v(o),a)
+
+
+/* Size computation */
+#define sizerecordtype(nf) \
+  (offsetof(RecordType, fields) + (nf) * sizeof(RecordField))
+
+#define sizerecordstandalone(rs) \
+  (sizeof(Record) + (rs))
+
+#define sizerecordview() \
+  (sizeof(Record))
+
+#define sizerecordarray(count, rs) \
+  (offsetof(RecordArray, data) + (size_t)(count) * (rs))
+
+
+/* }================================================================== */
+
+
+/*
+** {==================================================================
 ** Prototypes
 ** ===================================================================
 */

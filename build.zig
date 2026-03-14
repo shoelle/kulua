@@ -57,6 +57,7 @@ const core_sources = [_][]const u8{
     "lvm.c",
     "lzio.c",
     "kulua_fixed.c",
+    "kulua_record.c",
 };
 
 const lib_sources = [_][]const u8{

@@ -30,6 +30,7 @@
 #include "ltable.h"
 #include "ltm.h"
 #include "lvm.h"
+#include "kulua_record.h"
 
 
 /*
@@ -746,6 +747,18 @@ void luaV_objlen (lua_State *L, StkId ra, const TValue *rb) {
       setivalue(s2v(ra), cast_st2S(tsvalue(rb)->u.lnglen));
       return;
     }
+    case LUA_VRECORDTYPE: {
+      setivalue(s2v(ra), rtypevalue(rb)->record_size);
+      return;
+    }
+    case LUA_VRECORD: {
+      setivalue(s2v(ra), recvalue(rb)->rtype->record_size);
+      return;
+    }
+    case LUA_VRECORDARRAY: {
+      setivalue(s2v(ra), recarrvalue(rb)->count);
+      return;
+    }
     default: {  /* try metamethod */
       tm = luaT_gettmbyobj(L, rb, TM_LEN);
       if (l_unlikely(notm(tm)))  /* no metamethod? */
@@ -1313,6 +1326,18 @@ void luaV_execute (lua_State *L, CallInfo *ci) {
         TValue *rb = vRB(i);
         TValue *rc = vRC(i);
         lu_byte tag;
+        if (ttisrecordarray(rb) && ttisinteger(rc)) {
+          RecordArray *arr = recarrvalue(rb);
+          lua_Integer idx = ivalue(rc);
+          if (idx >= 1 && cast(uint32_t, idx) <= arr->count) {
+            Record *view = kulua_record_newview(L, arr->rtype,
+                                                arr, cast(uint32_t, idx - 1));
+            setrecvalue2s(L, ra, view);
+          }
+          else
+            luaG_runerror(L, "record array index out of range");
+          vmbreak;
+        }
         if (ttisinteger(rc)) {  /* fast track for integers? */
           luaV_fastgeti(rb, ivalue(rc), s2v(ra), tag);
         }
@@ -1327,6 +1352,18 @@ void luaV_execute (lua_State *L, CallInfo *ci) {
         TValue *rb = vRB(i);
         int c = GETARG_C(i);
         lu_byte tag;
+        if (ttisrecordarray(rb)) {  /* record array indexing? */
+          RecordArray *arr = recarrvalue(rb);
+          if (c >= 1 && cast(uint32_t, c) <= arr->count) {
+            Record *view = kulua_record_newview(L, arr->rtype,
+                                                arr, cast(uint32_t, c - 1));
+            setrecvalue2s(L, ra, view);
+          }
+          else
+            luaG_runerror(L, "record array index %d out of range [1, %d]",
+                          c, (int)arr->count);
+          vmbreak;
+        }
         luaV_fastgeti(rb, c, s2v(ra), tag);
         if (tagisempty(tag)) {
           TValue key;
@@ -1341,7 +1378,19 @@ void luaV_execute (lua_State *L, CallInfo *ci) {
         TValue *rc = KC(i);
         TString *key = tsvalue(rc);  /* key must be a short string */
         lu_byte tag;
-        luaV_fastget(rb, key, s2v(ra), luaH_getshortstr, tag);
+        if (ttisrecord(rb)) {  /* record field access? */
+          Record *rec = recvalue(rb);
+          int fi = kulua_recordtype_findfield(rec->rtype, key);
+          if (fi >= 0) {
+            kulua_record_readfield(s2v(ra), rec->data,
+                                   &rec->rtype->fields[fi]);
+            vmbreak;
+          }
+          tag = LUA_VNOTABLE;  /* field not found, try metamethod */
+        }
+        else {
+          luaV_fastget(rb, key, s2v(ra), luaH_getshortstr, tag);
+        }
         if (tagisempty(tag))
           Protect(luaV_finishget(L, rb, rc, ra, tag));
         vmbreak;
@@ -1397,7 +1446,19 @@ void luaV_execute (lua_State *L, CallInfo *ci) {
         TValue *rb = KB(i);
         TValue *rc = RKC(i);
         TString *key = tsvalue(rb);  /* key must be a short string */
-        luaV_fastset(s2v(ra), key, rc, hres, luaH_psetshortstr);
+        if (ttisrecord(s2v(ra))) {  /* record field write? */
+          Record *rec = recvalue(s2v(ra));
+          int fi = kulua_recordtype_findfield(rec->rtype, key);
+          if (fi >= 0) {
+            kulua_record_writefield(L, rc, rec->data,
+                                    &rec->rtype->fields[fi]);
+            vmbreak;
+          }
+          hres = HNOTATABLE;  /* try __newindex */
+        }
+        else {
+          luaV_fastset(s2v(ra), key, rc, hres, luaH_psetshortstr);
+        }
         if (hres == HOK)
           luaV_finishfastset(L, s2v(ra), rc);
         else
@@ -1432,7 +1493,13 @@ void luaV_execute (lua_State *L, CallInfo *ci) {
         TValue *rc = KC(i);
         TString *key = tsvalue(rc);  /* key must be a short string */
         setobj2s(L, ra + 1, rb);
-        luaV_fastget(rb, key, s2v(ra), luaH_getshortstr, tag);
+        if (ttisrecord(rb)) {
+          /* Methods come from metatable, not data fields */
+          tag = LUA_VNOTABLE;
+        }
+        else {
+          luaV_fastget(rb, key, s2v(ra), luaH_getshortstr, tag);
+        }
         if (tagisempty(tag))
           Protect(luaV_finishget(L, rb, rc, ra, tag));
         vmbreak;

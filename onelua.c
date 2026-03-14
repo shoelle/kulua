@@ -105,6 +105,9 @@
 /* fixed-point math support */
 #include "kulua_fixed.c"
 
+/* record type support */
+#include "kulua_record.c"
+
 /* auxiliary library -- used by all */
 #include "lauxlib.c"
 

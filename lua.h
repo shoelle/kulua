@@ -70,8 +70,9 @@ typedef struct lua_State lua_State;
 #define LUA_TFUNCTION		6
 #define LUA_TUSERDATA		7
 #define LUA_TTHREAD		8
+#define LUA_TRECORD		9
 
-#define LUA_NUMTYPES		9
+#define LUA_NUMTYPES		10
 
 
 
@@ -211,6 +212,16 @@ LUA_API const void     *(lua_topointer) (lua_State *L, int idx);
 LUA_API lua_Unsigned    (lua_toobjid) (lua_State *L, int idx);
 LUA_API void            (lua_resetobjidcounter) (lua_State *L);
 #endif
+
+/*
+** Record API
+*/
+LUA_API void       *(lua_torecorddata) (lua_State *L, int idx, size_t *len);
+LUA_API void       *(lua_torecordarraydata) (lua_State *L, int idx,
+                                             int element, size_t *stride);
+LUA_API int         (lua_isrecord) (lua_State *L, int idx);
+LUA_API int         (lua_isrecordarray) (lua_State *L, int idx);
+LUA_API int         (lua_isrecordtype) (lua_State *L, int idx);
 
 
 /*

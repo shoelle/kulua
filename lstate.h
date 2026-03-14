@@ -404,6 +404,9 @@ union GCUnion {
   struct Proto p;
   struct lua_State th;  /* thread */
   struct UpVal upv;
+  struct RecordType rt;
+  struct Record rec;
+  struct RecordArray ra;
 };
 
 
@@ -426,6 +429,12 @@ union GCUnion {
 #define gco2p(o)  check_exp((o)->tt == LUA_VPROTO, &((cast_u(o))->p))
 #define gco2th(o)  check_exp((o)->tt == LUA_VTHREAD, &((cast_u(o))->th))
 #define gco2upv(o)	check_exp((o)->tt == LUA_VUPVAL, &((cast_u(o))->upv))
+#define gco2rtype(o) \
+	check_exp((o)->tt == LUA_VRECORDTYPE, &((cast_u(o))->rt))
+#define gco2rec(o) \
+	check_exp((o)->tt == LUA_VRECORD, &((cast_u(o))->rec))
+#define gco2recarr(o) \
+	check_exp((o)->tt == LUA_VRECORDARRAY, &((cast_u(o))->ra))
 
 
 /*

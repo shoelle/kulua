@@ -359,4 +359,296 @@ assert(c.b == 0)
 assert(c.a == 255)
 
 
+-- ====================================================================
+-- Userdata + records coexistence (GC integration test)
+-- ====================================================================
+
+-- io file handles are userdata with user values; this exercises the
+-- GC traversal path that was previously broken by a fallthrough bug.
+do
+  local R = record { val = i32 }
+  local arr = R[50]
+  for i = 1, 50 do arr[i].val = i end
+
+  -- Create and use userdata (io file handles) alongside records
+  local f = io.tmpfile()
+  f:write("hello")
+  f:seek("set")
+  local content = f:read("a")
+  assert(content == "hello", "io userdata broken after record GC")
+  f:close()
+
+  -- Force GC while both records and userdata exist
+  collectgarbage("collect")
+  collectgarbage("collect")
+
+  -- Records should survive
+  for i = 1, 50 do
+    assert(arr[i].val == i, "record data corrupted alongside userdata")
+  end
+
+  -- Create more userdata after GC
+  f = io.tmpfile()
+  f:write("world")
+  f:seek("set")
+  assert(f:read("a") == "world")
+  f:close()
+end
+
+
+-- ====================================================================
+-- Records in tables
+-- ====================================================================
+
+do
+  local R = record { x = fx, y = fx }
+  local t = {}
+  for i = 1, 10 do
+    local r = R()
+    r.x = i
+    r.y = i * 2
+    t[i] = r
+  end
+  collectgarbage("collect")
+  for i = 1, 10 do
+    assert(t[i].x == i)
+    assert(t[i].y == i * 2)
+  end
+
+  -- Records as table values survive replacement
+  t[5] = R()
+  t[5].x = 999
+  assert(t[5].x == 999)
+  assert(t[4].x == 4)  -- neighbors unaffected
+end
+
+
+-- ====================================================================
+-- Weak tables with records
+-- ====================================================================
+
+do
+  local R = record { v = i32 }
+  local weak = setmetatable({}, { __mode = "v" })
+  do
+    local r = R()
+    r.v = 42
+    weak[1] = r
+    assert(weak[1].v == 42)
+  end
+  -- r is now unreferenced; GC should collect it
+  collectgarbage("collect")
+  collectgarbage("collect")
+  assert(weak[1] == nil, "record should be collected from weak table")
+end
+
+
+-- ====================================================================
+-- Equality semantics
+-- ====================================================================
+
+do
+  local R = record { v = i32 }
+  local a = R()
+  local b = R()
+  a.v = 10
+  b.v = 10
+
+  -- Different instances are never equal (identity, not structural)
+  assert(a ~= b, "different record instances should not be equal")
+  assert(a == a, "record should be equal to itself")
+
+  -- Array views: two accesses to the same index produce different view
+  -- objects (not identical), since views are freshly allocated
+  local arr = R[5]
+  arr[1].v = 7
+  local v1 = arr[1]
+  local v2 = arr[1]
+  assert(v1 ~= v2, "array views are distinct objects")
+  assert(v1.v == v2.v, "but they see the same data")
+  v1.v = 99
+  -- v2 is a separate view pointing at the same memory
+  local v3 = arr[1]
+  assert(v3.v == 99, "writes through one view visible to others")
+end
+
+
+-- ====================================================================
+-- Array view method inheritance
+-- ====================================================================
+
+do
+  local Particle = record { life = i16, active = bool }
+
+  function Particle:kill()
+    self.life = 0
+    self.active = false
+  end
+
+  local arr = Particle[3]
+  arr[1].life = 100
+  arr[1].active = true
+  arr[1]:kill()
+  assert(arr[1].life == 0)
+  assert(arr[1].active == false)
+end
+
+
+-- ====================================================================
+-- Method isolation between record types
+-- ====================================================================
+
+do
+  local A = record { x = i32 }
+  local B = record { x = i32 }
+
+  function A:get() return self.x + 1 end
+  function B:get() return self.x + 2 end
+
+  local a = A()
+  local b = B()
+  a.x = 10
+  b.x = 10
+
+  assert(a:get() == 11, "A:get should return x+1")
+  assert(b:get() == 12, "B:get should return x+2")
+end
+
+
+-- ====================================================================
+-- Records in coroutines
+-- ====================================================================
+
+do
+  local R = record { counter = i32 }
+  local r = R()
+  r.counter = 0
+
+  local co = coroutine.create(function(rec)
+    for i = 1, 5 do
+      rec.counter = rec.counter + 1
+      coroutine.yield(rec.counter)
+    end
+  end)
+
+  for expected = 1, 5 do
+    local ok, val = coroutine.resume(co, r)
+    assert(ok)
+    assert(val == expected, "coroutine record counter mismatch")
+    assert(r.counter == expected, "record visible outside coroutine")
+  end
+end
+
+
+-- ====================================================================
+-- pcall with record errors
+-- ====================================================================
+
+do
+  local R = record { hp = i16 }
+
+  function R:checked_heal(amount)
+    if amount < 0 then error("negative heal") end
+    self.hp = self.hp + amount
+  end
+
+  local r = R()
+  r.hp = 50
+  local ok, err = pcall(R.checked_heal, r, -10)
+  assert(not ok)
+  assert(err:find("negative heal"))
+  assert(r.hp == 50, "hp should be unchanged after error")
+
+  -- Successful call
+  r:checked_heal(20)
+  assert(r.hp == 70)
+end
+
+
+-- ====================================================================
+-- GC stress: many small allocations
+-- ====================================================================
+
+do
+  local R = record { a = u8, b = u8 }
+  local keep = {}
+  for i = 1, 1000 do
+    local r = R()
+    r.a = i % 256
+    r.b = (i * 7) % 256
+    if i % 3 == 0 then keep[#keep + 1] = r end  -- keep every 3rd
+    if i % 100 == 0 then collectgarbage("collect") end
+  end
+  collectgarbage("collect")
+  collectgarbage("collect")
+  -- Verify survivors
+  for i, r in ipairs(keep) do
+    local orig = i * 3
+    assert(r.a == orig % 256)
+    assert(r.b == (orig * 7) % 256)
+  end
+end
+
+
+-- ====================================================================
+-- Edge cases: array size 1, single-field record
+-- ====================================================================
+
+do
+  local Single = record { flag = bool }
+  assert(#Single == 1)
+
+  local s = Single()
+  assert(s.flag == false)
+  s.flag = true
+  assert(s.flag == true)
+
+  local arr = Single[1]
+  assert(#arr == 1)
+  arr[1].flag = true
+  assert(arr[1].flag == true)
+end
+
+
+-- ====================================================================
+-- Negative and zero array sizes
+-- ====================================================================
+
+do
+  local R = record { x = i32 }
+  local ok, err = pcall(function() return R[0] end)
+  assert(not ok, "array size 0 should error")
+
+  ok, err = pcall(function() return R[-1] end)
+  assert(not ok, "negative array size should error")
+end
+
+
+-- ====================================================================
+-- type() returns correct strings in all contexts
+-- ====================================================================
+
+do
+  local R = record { x = fx }
+  local r = R()
+  local arr = R[5]
+
+  -- In concatenation
+  assert("type is " .. type(R) == "type is recordtype")
+  assert("type is " .. type(r) == "type is record")
+  assert("type is " .. type(arr) == "type is recordarray")
+
+  -- In table keys (type strings are interned)
+  local counts = {}
+  local things = { R, r, arr }
+  for _, v in ipairs(things) do
+    local t = type(v)
+    counts[t] = (counts[t] or 0) + 1
+  end
+  assert(counts["recordtype"] == 1)
+  assert(counts["record"] == 1)
+  assert(counts["recordarray"] == 1)
+end
+
+
 print "OK"

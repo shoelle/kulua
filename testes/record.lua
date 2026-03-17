@@ -1,13 +1,12 @@
 -- $Id: record.lua $
 -- Tests for the record type
 
-global fx, i8, u8, i16, u16, i32, u32, i64, bool, f32, record
+global i8, u8, i16, u16, i32, u32, i64, bool, f32, record
 global <const> *
 
 print "testing records"
 
 -- Field type constants should be defined
-assert(type(fx) == "number")
 assert(type(i16) == "number")
 assert(type(u16) == "number")
 assert(type(i8) == "number")
@@ -19,7 +18,7 @@ assert(type(i64) == "number")
 assert(type(f32) == "number")
 
 -- All field types should be distinct
-local types = {fx, i16, u16, i8, u8, bool, i32, u32, i64, f32}
+local types = {i16, u16, i8, u8, bool, i32, u32, i64, f32}
 for i = 1, #types do
   for j = i + 1, #types do
     assert(types[i] ~= types[j], "field types must be distinct")
@@ -32,8 +31,8 @@ end
 -- ====================================================================
 
 local Entity = record {
-  x       = fx,
-  y       = fx,
+  x       = f32,
+  y       = f32,
   health  = i16,
   team    = u8,
   alive   = bool,
@@ -69,7 +68,7 @@ assert(e.alive == false)
 -- Field read/write for all types
 -- ====================================================================
 
--- fx field (Q16.16 / lua_Number)
+-- f32 field (float)
 e.x = 100
 assert(e.x == 100)
 e.y = -50
@@ -100,7 +99,7 @@ assert(e.alive == false)
 
 -- Test a record with all field types
 local AllTypes = record {
-  a = fx,
+  a = f32,
   b = i16,
   c = u16,
   d = i8,
@@ -202,23 +201,21 @@ do
   assert(m.count == 42)
   assert(m.flag == true)
 
-  if not _fixedpoint then
-    -- Tests that require double-precision lua_Number
-    r.val = 0.1  -- not exactly representable in float32
-    assert(math.abs(r.val - 0.1) < 1e-7)
+  -- Tests that require double-precision lua_Number
+  r.val = 0.1  -- not exactly representable in float32
+  assert(math.abs(r.val - 0.1) < 1e-7)
 
-    -- Large values (within float32 range, outside Q16.16 range)
-    r.val = 1e6
-    assert(r.val == 1e6)
-    r.val = -1e6
-    assert(r.val == -1e6)
-    r.val = 3.4028234e+38  -- near FLT_MAX
-    assert(r.val > 3.4e+38)
+  -- Large values (within float32 range)
+  r.val = 1e6
+  assert(r.val == 1e6)
+  r.val = -1e6
+  assert(r.val == -1e6)
+  r.val = 3.4028234e+38  -- near FLT_MAX
+  assert(r.val > 3.4e+38)
 
-    -- Very small values
-    r.val = 1.175494e-38  -- near FLT_MIN (normalized)
-    assert(r.val > 0 and r.val < 1e-37)
-  end
+  -- Very small values
+  r.val = 1.175494e-38  -- near FLT_MIN (normalized)
+  assert(r.val > 0 and r.val < 1e-37)
 end
 
 
@@ -226,7 +223,7 @@ end
 -- Record byte size with all types
 -- ====================================================================
 
--- AllTypes: fx(4) + i16(2) + u16(2) + i8(1) + u8(1) + bool(1) + i32(4) + u32(4) + i64(8) + f32(4) = 31
+-- AllTypes: f32(4) + i16(2) + u16(2) + i8(1) + u8(1) + bool(1) + i32(4) + u32(4) + i64(8) + f32(4) = 31
 assert(#AllTypes == 31, "#AllTypes should be 31, got " .. #AllTypes)
 
 
@@ -301,9 +298,9 @@ ok, err = pcall(function() return e.nonexistent end)
 ok, err = pcall(function() e.health = "hello" end)
 assert(not ok, "should error on string to integer field")
 
--- Wrong type for fx field
+-- Wrong type for f32 field
 ok, err = pcall(function() e.x = "hello" end)
-assert(not ok, "should error on string to fx field")
+assert(not ok, "should error on string to f32 field")
 
 -- Record constructor errors
 ok, err = pcall(function() record {} end)
@@ -411,7 +408,7 @@ assert(type(ats) == "string")
 -- Multiple independent record types
 -- ====================================================================
 
-local Vec2 = record { x = fx, y = fx }
+local Vec2 = record { x = f32, y = f32 }
 local Color = record { r = u8, g = u8, b = u8, a = u8 }
 
 assert(#Vec2 == 8)
@@ -476,7 +473,7 @@ end
 -- ====================================================================
 
 do
-  local R = record { x = fx, y = fx }
+  local R = record { x = f32, y = f32 }
   local t = {}
   for i = 1, 10 do
     local r = R()
@@ -704,7 +701,7 @@ end
 -- ====================================================================
 
 do
-  local R = record { x = fx }
+  local R = record { x = f32 }
   local r = R()
   local arr = R[5]
 

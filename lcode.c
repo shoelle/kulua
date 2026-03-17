@@ -622,10 +622,6 @@ static int luaK_numberK (FuncState *fs, lua_Number r) {
     return k2proto(fs, &kv, &o);  /* cannot collide */
   }
   else {
-#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
-    /* Q16.16 values are unique integers; no perturbation needed */
-    return addk(fs, fs->f, &o);
-#else
     const int nbm = l_floatatt(MANT_DIG);
     const lua_Number q = l_mathop(ldexp)(l_mathop(1.0), -nbm + 1);
     const lua_Number k =  r * (1 + q);  /* key */
@@ -639,7 +635,6 @@ static int luaK_numberK (FuncState *fs, lua_Number r) {
     /* else, either key is still an integer or there was a collision;
        anyway, do not try to reuse constant; instead, create a new one */
     return addk(fs, fs->f, &o);
-#endif
   }
 }
 

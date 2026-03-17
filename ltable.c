@@ -129,9 +129,7 @@ typedef union {
 static const Node dummynode_ = {
   {{NULL}, LUA_VEMPTY,  /* value's value and type */
    LUA_TDEADKEY, 0,  /* key type, next */
-#if defined(LUA_FIXED_POINT)
    -1,  /* insert_next */
-#endif
    {NULL}}  /* key value */
 };
 
@@ -220,12 +218,8 @@ static Node *mainpositionTV (const Table *t, const TValue *key) {
     }
     default: {
       GCObject *o = gcvalue(key);
-#if defined(LUA_FIXED_POINT)
       /* Use deterministic object ID instead of pointer address */
       return hashmod(t, cast_uint(o->kulua_objid));
-#else
-      return hashpointer(t, o);
-#endif
     }
   }
 }
@@ -377,7 +371,6 @@ int luaH_next (lua_State *L, Table *t, StkId key) {
       return 1;
     }
   }
-#if defined(LUA_FIXED_POINT)
   /* hash part: walk insertion-order chain */
   {
     int ni;
@@ -397,16 +390,6 @@ int luaH_next (lua_State *L, Table *t, StkId key) {
       ni = gnext_insert(n);
     }
   }
-#else
-  for (i -= asize; i < sizenode(t); i++) {  /* hash part */
-    if (!isempty(gval(gnode(t, i)))) {  /* a non-empty entry? */
-      Node *n = gnode(t, i);
-      getnodekey(L, s2v(key), n);
-      setobj2s(L, key + 1, gval(n));
-      return 1;
-    }
-  }
-#endif
   return 0;  /* no more elements */
 }
 
@@ -634,10 +617,8 @@ static void setnodevector (lua_State *L, Table *t, unsigned size) {
     t->node = cast(Node *, dummynode);  /* use common 'dummynode' */
     t->lsizenode = 0;
     setdummy(t);  /* signal that it is using dummy node */
-#if defined(LUA_FIXED_POINT)
     t->insert_head = -1;
     t->insert_tail = -1;
-#endif
   }
   else {
     int i;
@@ -658,16 +639,12 @@ static void setnodevector (lua_State *L, Table *t, unsigned size) {
     for (i = 0; i < cast_int(size); i++) {
       Node *n = gnode(t, i);
       gnext(n) = 0;
-#if defined(LUA_FIXED_POINT)
       gnext_insert(n) = -1;
-#endif
       setnilkey(n);
       setempty(gval(n));
     }
-#if defined(LUA_FIXED_POINT)
     t->insert_head = -1;
     t->insert_tail = -1;
-#endif
   }
 }
 
@@ -676,7 +653,6 @@ static void setnodevector (lua_State *L, Table *t, unsigned size) {
 ** (Re)insert all elements from the hash part of 'ot' into table 't'.
 */
 static void reinserthash (lua_State *L, Table *ot, Table *t) {
-#if defined(LUA_FIXED_POINT)
   /* Walk old table's insertion-order chain so that keys are re-inserted
      in original insertion order, preserving deterministic iteration. */
   int j = ot->insert_head;
@@ -692,20 +668,6 @@ static void reinserthash (lua_State *L, Table *ot, Table *t) {
     }
     j = next_j;
   }
-#else
-  unsigned j;
-  unsigned size = sizenode(ot);
-  for (j = 0; j < size; j++) {
-    Node *old = gnode(ot, j);
-    if (!isempty(gval(old))) {
-      /* doesn't need barrier/invalidate cache, as entry was
-         already present in the table */
-      TValue k;
-      getnodekey(L, &k, old);
-      newcheckedkey(t, &k, gval(old));
-    }
-  }
-#endif
 }
 
 
@@ -724,7 +686,6 @@ static void exchangehashpart (Table *t1, Table *t2) {
   t2->lsizenode = lsizenode;
   t2->node = node;
   t2->flags = cast_byte((t2->flags & NOTBITDUMMY) | bitdummy1);
-#if defined(LUA_FIXED_POINT)
   {
     int head = t1->insert_head;
     int tail = t1->insert_tail;
@@ -733,7 +694,6 @@ static void exchangehashpart (Table *t1, Table *t2) {
     t2->insert_head = head;
     t2->insert_tail = tail;
   }
-#endif
 }
 
 
@@ -915,7 +875,6 @@ static Node *getfreepos (Table *t) {
 }
 
 
-#if defined(LUA_FIXED_POINT)
 /*
 ** Append node at index 'ni' to the insertion-order chain's tail.
 */
@@ -980,7 +939,6 @@ static void insertchain_fix (Table *t, int old_idx, int new_idx) {
   if (t->insert_tail == old_idx)
     t->insert_tail = new_idx;
 }
-#endif
 
 
 /*
@@ -995,13 +953,11 @@ static int insertkey (Table *t, const TValue *key, TValue *value) {
   Node *mp = mainpositionTV(t, key);
   /* table cannot already contain the key */
   lua_assert(isabstkey(getgeneric(t, key, 0)));
-#if defined(LUA_FIXED_POINT)
   /* If main position has an empty value but was previously used (key not
      nil), the node is still linked in the insertion-order chain.  Remove
      it now; it will be re-appended at the tail for the new key. */
   if (isempty(gval(mp)) && !isdummy(t) && !keyisnil(mp))
     insertchain_remove(t, cast_int(mp - gnode(t, 0)));
-#endif
   if (!isempty(gval(mp)) || isdummy(t)) {  /* main position is taken? */
     Node *othern;
     Node *f = getfreepos(t);  /* get a free place */
@@ -1015,10 +971,8 @@ static int insertkey (Table *t, const TValue *key, TValue *value) {
         othern += gnext(othern);
       gnext(othern) = cast_int(f - othern);  /* rechain to point to 'f' */
       *f = *mp;  /* copy colliding node into free pos. (mp->next also goes) */
-#if defined(LUA_FIXED_POINT)
       insertchain_fix(t, cast_int(mp - gnode(t, 0)),
                          cast_int(f - gnode(t, 0)));
-#endif
       if (gnext(mp) != 0) {
         gnext(f) += cast_int(mp - f);  /* correct 'next' */
         gnext(mp) = 0;  /* now 'mp' is free */
@@ -1037,9 +991,7 @@ static int insertkey (Table *t, const TValue *key, TValue *value) {
   setnodekey(mp, key);
   lua_assert(isempty(gval(mp)));
   setobj2t(cast(lua_State *, 0), gval(mp), value);
-#if defined(LUA_FIXED_POINT)
   insertchain_append(t, cast_int(mp - gnode(t, 0)));
-#endif
   return 1;
 }
 

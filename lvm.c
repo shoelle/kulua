@@ -109,7 +109,7 @@ static int l_strton (const TValue *obj, TValue *result) {
 int luaV_tonumber_ (const TValue *obj, lua_Number *n) {
   TValue v;
   if (ttisinteger(obj)) {
-    *n = luai_int2num(ivalue(obj));
+    *n = cast_num(ivalue(obj));
     return 1;
   }
   else if (l_strton(obj, &v)) {  /* string coercible to number? */
@@ -129,7 +129,7 @@ int luaV_flttointeger (lua_Number n, lua_Integer *p, F2Imod mode) {
   if (n != f) {  /* not an integral value? */
     if (mode == F2Ieq) return 0;  /* fails if mode demands integral value */
     else if (mode == F2Iceil)  /* needs ceiling? */
-      f += KULUA_ONE;  /* convert floor to ceiling (remember: n != f) */
+      f += 1;  /* convert floor to ceiling (remember: n != f) */
   }
   return lua_numbertointeger(f, p);
 }
@@ -426,7 +426,7 @@ static int l_strcmp (const TString *ts1, const TString *ts2) {
 */
 l_sinline int LTintfloat (lua_Integer i, lua_Number f) {
   if (l_intfitsf(i))
-    return luai_numlt(luai_int2num(i), f);  /* compare them as floats */
+    return luai_numlt(cast_num(i), f);  /* compare them as floats */
   else {  /* i < f <=> i < ceil(f) */
     lua_Integer fi;
     if (luaV_flttointeger(f, &fi, F2Iceil))  /* fi = ceil(f) */
@@ -443,7 +443,7 @@ l_sinline int LTintfloat (lua_Integer i, lua_Number f) {
 */
 l_sinline int LEintfloat (lua_Integer i, lua_Number f) {
   if (l_intfitsf(i))
-    return luai_numle(luai_int2num(i), f);  /* compare them as floats */
+    return luai_numle(cast_num(i), f);  /* compare them as floats */
   else {  /* i <= f <=> i <= floor(f) */
     lua_Integer fi;
     if (luaV_flttointeger(f, &fi, F2Ifloor))  /* fi = floor(f) */
@@ -460,7 +460,7 @@ l_sinline int LEintfloat (lua_Integer i, lua_Number f) {
 */
 l_sinline int LTfloatint (lua_Number f, lua_Integer i) {
   if (l_intfitsf(i))
-    return luai_numlt(f, luai_int2num(i));  /* compare them as floats */
+    return luai_numlt(f, cast_num(i));  /* compare them as floats */
   else {  /* f < i <=> floor(f) < i */
     lua_Integer fi;
     if (luaV_flttointeger(f, &fi, F2Ifloor))  /* fi = floor(f) */
@@ -477,7 +477,7 @@ l_sinline int LTfloatint (lua_Number f, lua_Integer i) {
 */
 l_sinline int LEfloatint (lua_Number f, lua_Integer i) {
   if (l_intfitsf(i))
-    return luai_numle(f, luai_int2num(i));  /* compare them as floats */
+    return luai_numle(f, cast_num(i));  /* compare them as floats */
   else {  /* f <= i <=> ceil(f) <= i */
     lua_Integer fi;
     if (luaV_flttointeger(f, &fi, F2Iceil))  /* fi = ceil(f) */
@@ -964,7 +964,7 @@ void luaV_finishOp (lua_State *L) {
   }  \
   else if (ttisfloat(v1)) {  \
     lua_Number nb = fltvalue(v1);  \
-    lua_Number fimm = luai_int2num(imm);  \
+    lua_Number fimm = cast_num(imm);  \
     pc++; setfltvalue(ra, fop(L, nb, fimm)); \
   }}
 
@@ -975,7 +975,7 @@ void luaV_finishOp (lua_State *L) {
 */
 #define op_arithf_aux(L,v1,v2,fop) {  \
   lua_Number n1; lua_Number n2;  \
-  if (tonumberns_w(v1, n1, L) && tonumberns_w(v2, n2, L)) {  \
+  if (tonumberns(v1, n1) && tonumberns(v2, n2)) {  \
     StkId ra = RA(i);  \
     pc++; setfltvalue(s2v(ra), fop(L, n1, n2));  \
   }}
@@ -1089,7 +1089,7 @@ void luaV_finishOp (lua_State *L) {
     cond = opi(ivalue(ra), im);  \
   else if (ttisfloat(ra)) {  \
     lua_Number fa = fltvalue(ra);  \
-    lua_Number fim = luai_int2num(im);  \
+    lua_Number fim = cast_num(im);  \
     cond = opf(fa, fim);  \
   }  \
   else {  \
@@ -1257,7 +1257,7 @@ void luaV_execute (lua_State *L, CallInfo *ci) {
       vmcase(OP_LOADF) {
         StkId ra = RA(i);
         int b = GETARG_sBx(i);
-        setfltvalue(s2v(ra), luai_int2num_w(L, b));
+        setfltvalue(s2v(ra), cast_num(b));
         vmbreak;
       }
       vmcase(OP_LOADK) {
@@ -1658,7 +1658,7 @@ void luaV_execute (lua_State *L, CallInfo *ci) {
           lua_Integer ib = ivalue(rb);
           setivalue(s2v(ra), intop(-, 0, ib));
         }
-        else if (tonumberns_w(rb, nb, L)) {
+        else if (tonumberns(rb, nb)) {
           setfltvalue(s2v(ra), luai_numunm(L, nb));
         }
         else
@@ -1745,7 +1745,7 @@ void luaV_execute (lua_State *L, CallInfo *ci) {
         if (ttisinteger(s2v(ra)))
           cond = (ivalue(s2v(ra)) == im);
         else if (ttisfloat(s2v(ra)))
-          cond = luai_numeq(fltvalue(s2v(ra)), luai_int2num(im));
+          cond = luai_numeq(fltvalue(s2v(ra)), cast_num(im));
         else
           cond = 0;  /* other types cannot be equal to a number */
         docondjump();

@@ -296,8 +296,7 @@ end
 
 
 -- testing decimal point locale
--- Q16.16 parser uses '.' only (no locale-specific decimal separator)
-if not _fixedpoint and (os.setlocale("pt_BR") or os.setlocale("ptb")) then
+if (os.setlocale("pt_BR") or os.setlocale("ptb")) then
   assert(tonumber("3,4") == 3.4 and tonumber"3.4" == 3.4)
   assert(tonumber("  -.4  ") == -0.4)
   assert(tonumber("  +0x.41  ") == 0X0.41)

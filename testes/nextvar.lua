@@ -353,8 +353,11 @@ do  print("testing attack on table length")
     t[2^i] = true
   end
   assert(t[1 << lim])
-  -- next loop should not take forever
-  for i = 1, #t do end
+  -- Kulua: deterministic hash layout causes #t to return 2^62 (a valid
+  -- boundary), making the original `for i = 1, #t do end` loop infeasible.
+  -- Just verify #t computation is fast and returns a valid boundary.
+  local len = #t
+  assert(t[len] and not t[len + 1])
 end
 
 local nofind = {}
@@ -725,11 +728,9 @@ do
   a = 0; for i=1, 0.99999, -1 do a=a+1 end; assert(a==1)
 
   -- float count
-  if not _fixedpoint then  -- precision-dependent float loop tests
-    a = 0; for i=0, 0.999999999, 0.1 do a=a+1 end; assert(a==10)
-    a = 0; for i=1e6, 1e6, -1 do a=a+1 end; assert(a==1)
-    a = 0; for i=99999, 1e5, -1.0 do a=a+1 end; assert(a==0)
-  end
+  a = 0; for i=0, 0.999999999, 0.1 do a=a+1 end; assert(a==10)
+  a = 0; for i=1e6, 1e6, -1 do a=a+1 end; assert(a==1)
+  a = 0; for i=99999, 1e5, -1.0 do a=a+1 end; assert(a==0)
   a = 0; for i=1.0, 1, 1 do a=a+1 end; assert(a==1)
   a = 0; for i=-1.5, -1.5, 1 do a=a+1 end; assert(a==1)
   a = 0; for i=1.0, 0.99999, 1 do a=a+1 end; assert(a==0)
@@ -796,10 +797,8 @@ do  -- checking types
   assert(c == 10)
 
 
-  if not _fixedpoint then  -- 10e100 overflows Q16.16
-    for i = math.mininteger, -10e100 do assert(false) end
-    for i = math.maxinteger, 10e100, -1 do assert(false) end
-  end
+  for i = math.mininteger, -10e100 do assert(false) end
+  for i = math.maxinteger, 10e100, -1 do assert(false) end
 
 end
 
@@ -820,10 +819,8 @@ do   -- testing other strange cases for numeric 'for'
 
   checkfor(mini, maxi, maxi, {mini, -1, maxi - 1})
 
-  if not _fixedpoint then  -- math.huge is finite in Q16.16
-    checkfor(mini, math.huge, maxi, {mini, -1, maxi - 1})
-    checkfor(maxi, -math.huge, mini, {maxi, -1})
-  end
+  checkfor(mini, math.huge, maxi, {mini, -1, maxi - 1})
+  checkfor(maxi, -math.huge, mini, {maxi, -1})
 
   checkfor(maxi, mini, mini, {maxi, -1})
 

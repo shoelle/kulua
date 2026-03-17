@@ -1,12 +1,14 @@
 # Kulua
 
-Deterministic fixed-point Lua for games. Fork of [Lua 5.5](https://www.lua.org/) (PUC-Rio).
+Deterministic Lua for games. Fork of [Lua 5.5](https://www.lua.org/) (PUC-Rio).
 
-Kulua replaces Lua's `double` float type with **Q16.16 fixed-point** (`int32_t`) for bit-exact arithmetic across platforms. Integer table keys, closures, coroutines, the GC — everything else works like standard Lua.
+Kulua takes standard Lua and adds determinism guarantees for networked and replayed game simulations. IEEE 754 doubles, 64-bit integers, closures, coroutines, the GC -- everything works like standard Lua, but math results are reproducible across platforms.
 
-## Why
+## Why deterministic?
 
-Networked and replayed game simulations need deterministic math. IEEE 754 floats aren't — different compilers, platforms, and optimization levels produce different results. Fixed-point arithmetic is identical everywhere because it's just integer math.
+Networked and replayed game simulations need identical results on every machine. Standard IEEE 754 doubles are well-defined in theory, but in practice compilers silently fuse multiply-add into FMA instructions, producing different rounding on different CPUs. A single bit of divergence compounds into a desync within seconds.
+
+Kulua prevents this with `-ffp-contract=off`, which disables FMA contraction so that `a * b + c` always rounds the multiply before the add. This is the same approach used by [Box2D](https://box2d.org/) for cross-platform determinism. Combined with deterministic table iteration and object hashing, Kulua provides the reproducibility games need while keeping the full range and precision of standard doubles.
 
 ## Quick start
 
@@ -20,126 +22,50 @@ zig build run -- test.lua
 
 No dependencies beyond [Zig](https://ziglang.org/). No make, cmake, or readline.
 
-## How it works
-
-Lua 5.4+ has two number subtypes: `lua_Integer` (64-bit int) and `lua_Number` (double). Kulua keeps the integer and replaces the float:
+## What's different from standard Lua
 
 | | Standard Lua | Kulua |
 |---|---|---|
 | `lua_Integer` | `long long` (64-bit) | `long long` (64-bit) |
-| `lua_Number` | `double` (64-bit IEEE 754) | `int32_t` (Q16.16 fixed-point) |
+| `lua_Number` | `double` (64-bit IEEE 754) | `double` (64-bit IEEE 754) |
+| FP contraction | compiler default (FMA allowed) | `-ffp-contract=off` (no FMA) |
+| `pairs()` order | undefined | insertion order (deterministic) |
+| Table hashing | pointer-based | object ID-based (deterministic) |
+| Record types | N/A | first-class C-struct-like types |
 
-The upper 16 bits hold the integer part (signed), the lower 16 bits hold the fraction (65,536 steps per unit). This is the same format used by Doom, PICO-8, and GBA games.
+## Determinism features
 
-Because integers remain 64-bit, `t[1]` is still the integer `1` — not `65536`. This is Kulua's advantage over [z8lua](https://github.com/samhocevar/z8lua) (PICO-8's Lua), which uses a single number type where every table index is a Q16.16 value.
+### `-ffp-contract=off`
 
-## Differences from standard Lua
+FMA (fused multiply-add) instructions combine `a * b + c` into a single operation with only one rounding step instead of two. This produces more accurate results but different ones depending on whether the CPU and compiler choose to fuse. Kulua compiles all C source with `-ffp-contract=off` to ensure identical floating-point results across x86, ARM, and WASM.
 
-If you're porting Lua code to Kulua, here's what to watch for.
+### Deterministic `pairs()`
 
-### Float range is ±32767.99998
-
-Q16.16 can only represent numbers from about -32768 to +32767. Standard Lua handles numbers up to ~1.8×10³⁰⁸.
-
-```lua
--- Standard Lua: fine
-local x = 1000000.5
-
--- Kulua: saturates to 32767.99998 (math.huge)
-local x = 1000000.5  -- silently becomes 32767.99998
-```
-
-Integer-to-float conversion saturates when the integer exceeds ±32767:
-```lua
-local big = 100000     -- integer, fine
-local f = big + 0.0    -- coerces to float: saturates to math.huge
-```
-
-### No NaN or infinity
-
-Q16.16 has no bit patterns for NaN or infinity. Division by zero returns `math.huge` (positive) or its negation instead of `inf`. The NaN check pattern `x ~= x` always returns `false`.
+Standard Lua makes no guarantee about the order `pairs()` visits table keys. Kulua maintains an insertion-order linked list in every table, so `pairs()` always iterates in the order keys were first inserted. This eliminates a common source of non-determinism in game logic.
 
 ```lua
--- Standard Lua
-print(0/0)        -- nan
-print(1/0)        -- inf
-print(0/0 == 0/0) -- false (NaN)
+local t = {}
+t.z = 1
+t.a = 2
+t.m = 3
 
--- Kulua
-print(0/0)        -- 32767.99998 (clamped)
-print(1/0)        -- 32767.99998 (math.huge)
-print(0/0 == 0/0) -- true (no NaN exists)
+for k, v in pairs(t) do
+  print(k, v)
+end
+-- Always prints: z, a, m (insertion order)
 ```
 
-`math.huge` is a finite value (~32768) rather than infinity.
+### Object ID hashing
 
-### ~4.6 decimal digits of precision
+Standard Lua hashes GC objects (tables, strings, functions) by their memory address. Since allocators return different addresses across runs, hash table layouts differ, which affects iteration order for non-string keys. Kulua assigns each GC object a sequential ID at creation and hashes by that ID, making hash collisions and bucket placement deterministic.
 
-Q16.16 has 16 fractional bits, giving about 4.6 significant decimal digits. Values that differ only in the 5th+ decimal place may compare equal.
+### Sandbox libs
 
-```lua
--- Standard Lua: different values
-print(0.123456 > 0.123455)  -- true
-
--- Kulua: same Q16.16 representation
-print(0.123456 > 0.123455)  -- false (indistinguishable)
-```
-
-Tostring round-trips may lose precision:
-```lua
-local x = 3.14159
-print(x)              -- 3.14159 (fine, within precision)
--- but very precise values won't survive parse → print → parse
-```
-
-### Arithmetic saturates on overflow
-
-Add, sub, mul, and div use 64-bit intermediates and **saturate** to `math.huge` / `-math.huge` on overflow instead of wrapping:
-
-```lua
-local x = 32000.0 + 32000.0  -- saturates to math.huge (32767.99998)
-local y = 200.0 * 200.0      -- saturates to math.huge (40000 > Q16.16 max)
-```
-
-This is safer for game simulations than wrapping (a position that clamps at the world edge is better than one that teleports to the opposite side).
-
-With warnings enabled (`-W` flag), Kulua emits a warning whenever saturation occurs:
-
-```
-Lua warning: fixed-point overflow in addition
-Lua warning: fixed-point overflow in int-to-float coercion
-Lua warning: fixed-point overflow in division by zero
-```
-
-This covers int-to-float coercion, all arithmetic operations (add, sub, mul, div, pow, negation), and division by zero. Useful for catching accidental overflows during development.
-
-### Math library is approximate
-
-Trig functions use lookup tables (256 entries per quadrant) with linear interpolation. `exp`/`log` use Taylor series. Results are close but not bit-exact with standard `libm`:
-
-```lua
-math.sin(math.pi / 2)  -- 1.0 (exact)
-math.sin(1.0)           -- ~0.84147 (within ~0.01 of true value)
-math.sqrt(2.0)          -- ~1.41421 (good to ~4 digits)
-```
-
-`math.atan`, `math.asin`, `math.acos` use CORDIC. `math.exp` and `math.log` are rough approximations suitable for game use, not scientific computing.
-
-### `os.difftime` and `os.clock` saturate
-
-These return Q16.16 floats. Time differences larger than ~32768 seconds (~9 hours) saturate.
-
-### `string.format` works via double conversion
-
-`%f`, `%g`, and `%e` format specifiers convert the Q16.16 value to `double` for display. This is a display-only path and doesn't affect determinism.
-
-### `string.pack`/`unpack` with floats
-
-Packing Q16.16 values into `f` (float) or `d` (double) format converts appropriately. Unpacking saturates if the stored float exceeds Q16.16 range.
+`os` and `io` functions that would break determinism (wall-clock time, file I/O) can be restricted for replay contexts. The standard library surface is otherwise unchanged.
 
 ## Record types
 
-Kulua adds first-class C-struct-like types for sharing gameplay data between Lua and C engine code (physics, networking) via direct memory access — no serialization, no getter/setter bindings.
+Kulua adds first-class C-struct-like types for sharing gameplay data between Lua and C engine code (physics, networking) via direct memory access -- no serialization, no getter/setter bindings.
 
 Records are flat, packed byte buffers with named typed fields. Both Lua and C can read/write the same memory.
 
@@ -149,8 +75,8 @@ Pass a table of `name = type` pairs to the `record` constructor. Fields are laid
 
 ```lua
 local Entity = record {
-  x      = fx,     -- Q16.16 fixed-point (4 bytes)
-  y      = fx,
+  x      = f32,    -- 32-bit float (4 bytes)
+  y      = f32,
   health = i16,    -- signed 16-bit int (2 bytes)
   team   = u8,     -- unsigned 8-bit int (1 byte)
   alive  = bool,   -- boolean (1 byte)
@@ -162,13 +88,13 @@ Nine field types are available:
 
 | Type | Bytes | Lua value | Range |
 |------|-------|-----------|-------|
-| `fx` | 4 | `lua_Number` (Q16.16) | ±32767.99998 |
+| `f32` | 4 | number | IEEE 754 single-precision |
 | `i8` | 1 | integer | -128 to 127 |
 | `u8` | 1 | integer | 0 to 255 |
 | `i16` | 2 | integer | -32768 to 32767 |
 | `u16` | 2 | integer | 0 to 65535 |
-| `i32` | 4 | integer | -2³¹ to 2³¹-1 |
-| `u32` | 4 | integer | 0 to 2³²-1 |
+| `i32` | 4 | integer | -2^31 to 2^31-1 |
+| `u32` | 4 | integer | 0 to 2^32-1 |
 | `i64` | 8 | integer (`lua_Integer`) | full 64-bit range |
 | `bool` | 1 | boolean | `true`/`false` |
 
@@ -178,11 +104,11 @@ Call the record type like a function. Instances are zero-initialized.
 
 ```lua
 local e = Entity()
-e.x = 100
+e.x = 100.5
 e.health = 50
 e.alive = true
 
-print(e.x)       -- 100
+print(e.x)       -- 100.5
 print(e.alive)   -- true
 ```
 
@@ -194,7 +120,7 @@ Index the record type with a count to create a contiguous array. Elements are 1-
 local enemies = Entity[100]
 print(#enemies)  -- 100
 
-enemies[1].x = 500
+enemies[1].x = 500.0
 enemies[1].alive = true
 
 for i = 1, #enemies do
@@ -273,7 +199,7 @@ Fields are packed with no alignment padding, so C structs must use `#pragma pack
 ## Build options
 
 ```bash
-zig build                        # debug build → zig-out/bin/lua
+zig build                        # debug build -> zig-out/bin/lua
 zig build -Doptimize=ReleaseFast # optimized build
 zig build run                    # build and launch REPL
 zig build run -- script.lua      # run a script
@@ -288,7 +214,7 @@ The original `makefile` is still present for reference but isn't maintained.
 cd testes && ../zig-out/bin/lua -W -e "_U=true" all.lua
 ```
 
-All 34 upstream Lua test modules pass, plus `testes/fixed.lua` (Q16.16-specific assertions) and `testes/record.lua` (record type tests). Tests that assume 64-bit float range are guarded behind a `_fixedpoint` flag (auto-detected via `math.huge < 100000`).
+All 34 upstream Lua test modules pass, plus `testes/record.lua` (record type tests). 35 modules total.
 
 ## Source layout
 
@@ -297,7 +223,6 @@ All source lives in the repo root.
 | Area | Key files |
 |------|-----------|
 | Config | `luaconf.h`, `lua.h`, `llimits.h` |
-| Fixed-point | `kulua_fixed.c` (Q16.16 math, parsing, formatting) |
 | Records | `kulua_record.c`, `kulua_record.h` (record types, arrays, C API) |
 | VM | `lvm.c`, `ldo.c`, `lopcodes.h` |
 | Compiler | `lparser.c`, `lcode.c`, `llex.c` |
@@ -305,61 +230,16 @@ All source lives in the repo root.
 | Std libs | `lmathlib.c`, `lstrlib.c`, `ltablib.c`, `lbaselib.c`, `liolib.c`, `loslib.c` |
 | Interpreter | `lua.c` |
 
-## Merging upstream Lua updates
-
-Kulua is designed to sit on top of upstream Lua with minimal friction. Most changes are behind `#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED` guards or use macros that expand to no-ops on standard builds. Here's what to watch for when merging a new Lua release.
-
-### Change categories
-
-**Zero conflict** — new standalone files, never touch upstream:
-- `kulua_fixed.c` (all Q16.16 math, parsing, trig LUTs)
-- `kulua_record.c`, `kulua_record.h` (record types, arrays, views)
-- `build.zig` (parallel to upstream makefile)
-
-**Low conflict** — guarded `#if` blocks or additive cases appended to upstream code:
-- `luaconf.h` — Q16.16 config section at the end of each upstream block
-- `lbaselib.c`, `lcode.c`, `lundump.h`, `lmathlib.c`, `lstrlib.c`, `loslib.c` — isolated `#if` blocks
-- `lstate.h`, `lstate.c`, `lapi.c` — new fields/functions, guarded
-- `lobject.c` — alternate `tostringbuffFloat` implementation behind `#if`
-- `lgc.c`, `ltm.c`, `lvm.c` — new `case` branches for `LUA_TRECORD` variants (record types)
-
-**Medium conflict** — struct field additions (guarded, but interact with layout):
-- `lobject.h` — `kulua_objid` in `CommonHeader`, `insert_next` in `Node`, `insert_head`/`insert_tail` in `Table`
-
-**High conflict** — algorithmic additions to table internals:
-- `ltable.c` — ~200 lines of insertion-order linked list logic for deterministic `pairs()`. Touches rehash, insert, delete, and iteration paths. If upstream restructures table internals, this needs careful re-verification.
-
-### `cast_num` vs `luai_int2num`
-
-The most common per-site patch is replacing `cast_num(intvalue)` with `luai_int2num(intvalue)` (~20 sites in `lvm.c`, `ltm.c`, `loslib.c`, `lobject.h`, `lvm.h`). These are semantically different and cannot be unified:
-
-- `cast_num(x)` = plain C cast to `lua_Number` (the raw Q16.16 `int32_t`)
-- `luai_int2num(i)` = encode integer `i` as Q16.16 (`i << 16` with saturation)
-
-In standard Lua both are `(double)(i)`, so they're identical. In Q16.16 they differ: `cast_num(42)` gives raw value `42` (fraction-only), while `luai_int2num(42)` gives `2752512` (the encoding of `42.0`).
-
-After merging upstream, grep for new `cast_num(intvalue)` sites in the VM and coercion paths — any place that converts a logical integer to a float needs `luai_int2num` instead.
-
-### Merge checklist
-
-1. Apply upstream diff. Conflicts will mostly be in `luaconf.h` and `ltable.c`.
-2. `grep cast_num lvm.c ltm.c loslib.c lobject.h lvm.h` — check for new int-to-float coercion sites, replace with `luai_int2num`.
-3. Check `KULUA_ONE` — anywhere upstream assumes float `1.0` for ceiling/floor/rounding logic may need the constant.
-4. Rebuild: `zig build`
-5. Run tests: `cd testes && ../zig-out/bin/lua -W -e "_U=true" all.lua`
-6. If upstream changed table internals (`ltable.c`), manually verify insertion-order iteration survives rehash with `testes/fixed.lua`.
-
 ## References
 
-- [z8lua](https://github.com/samhocevar/z8lua) — Q16.16 Lua 5.2 fork (PICO-8 engine)
-- [Factorio Lua](https://lua-api.factorio.com/latest/auxiliary/libraries.html) — deterministic multiplayer Lua reference
-- [Lua 5.5](https://www.lua.org/) — upstream
+- [Factorio Lua](https://lua-api.factorio.com/latest/auxiliary/libraries.html) -- deterministic multiplayer Lua reference
+- [Box2D](https://box2d.org/) -- uses `-ffp-contract=off` for cross-platform determinism
+- [Lua 5.5](https://www.lua.org/) -- upstream
 
 ## License
 
-Same as Lua — MIT license. See `lua.h` for the full notice.
+Same as Lua -- MIT license. See `lua.h` for the full notice.
 
 ## Caveat Machinam
 
-This was written with Claude Code. 
-
+This was written with Claude Code.

@@ -74,7 +74,6 @@ static const TValue *rec_index2value (lua_State *L, int idx) {
 
 int kulua_fieldsize (int type) {
   switch (type) {
-    case KULUA_FIELD_FX:   return 4;
     case KULUA_FIELD_I32:  return 4;
     case KULUA_FIELD_U32:  return 4;
     case KULUA_FIELD_I16:  return 2;
@@ -93,16 +92,6 @@ void kulua_record_readfield (TValue *res, const uint8_t *data,
                              const RecordField *f) {
   const uint8_t *p = data + f->offset;
   switch (f->type) {
-    case KULUA_FIELD_FX: {
-      int32_t v;
-      memcpy(&v, p, 4);
-#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
-      setfltvalue(res, (lua_Number)v);
-#else
-      setfltvalue(res, (lua_Number)v / 65536.0);
-#endif
-      break;
-    }
     case KULUA_FIELD_I32: {
       int32_t v;
       memcpy(&v, p, 4);
@@ -153,11 +142,7 @@ void kulua_record_readfield (TValue *res, const uint8_t *data,
     case KULUA_FIELD_F32: {
       float v;
       memcpy(&v, p, 4);
-#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
-      setfltvalue(res, (int32_t)(v * 65536.0f));
-#else
       setfltvalue(res, (lua_Number)v);
-#endif
       break;
     }
     default:
@@ -171,27 +156,6 @@ int kulua_record_writefield (lua_State *L, const TValue *val,
                              uint8_t *data, const RecordField *f) {
   uint8_t *p = data + f->offset;
   switch (f->type) {
-    case KULUA_FIELD_FX: {
-      int32_t v;
-      if (ttisfloat(val)) {
-#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
-        v = (int32_t)fltvalue(val);
-#else
-        v = (int32_t)(fltvalue(val) * 65536.0);
-#endif
-      }
-      else if (ttisinteger(val)) {
-#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
-        v = (int32_t)luai_int2num(ivalue(val));
-#else
-        v = (int32_t)(ivalue(val) * 65536);
-#endif
-      }
-      else
-        luaG_runerror(L, "fx field requires number");
-      memcpy(p, &v, 4);
-      break;
-    }
     case KULUA_FIELD_I32: {
       if (!ttisinteger(val))
         luaG_runerror(L, "i32 field requires integer");
@@ -246,11 +210,7 @@ int kulua_record_writefield (lua_State *L, const TValue *val,
     case KULUA_FIELD_F32: {
       float v;
       if (ttisfloat(val)) {
-#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
-        v = (float)fltvalue(val) / 65536.0f;
-#else
         v = (float)fltvalue(val);
-#endif
       }
       else if (ttisinteger(val))
         v = (float)ivalue(val);

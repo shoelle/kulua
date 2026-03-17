@@ -62,8 +62,6 @@ LUALIB_API void luaL_openselectedlibs (lua_State *L, int load, int preload) {
 }
 
 
-#if defined(LUA_FIXED_POINT)
-
 #include "lstate.h"
 
 /*
@@ -85,6 +83,4 @@ LUALIB_API void kulua_opensandboxlibs (lua_State *L) {
   /* disable __gc finalizers */
   G(L)->kulua_no_gc_metamethod = 1;
 }
-
-#endif
 

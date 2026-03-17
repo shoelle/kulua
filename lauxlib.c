@@ -946,12 +946,8 @@ LUALIB_API const char *luaL_tolstring (lua_State *L, int idx, size_t *len) {
         int tt = luaL_getmetafield(L, idx, "__name");  /* try name */
         const char *kind = (tt == LUA_TSTRING) ? lua_tostring(L, -1) :
                                                  luaL_typename(L, idx);
-#if defined(LUA_FIXED_POINT)
         lua_pushfstring(L, "%s: %I", kind,
                         (lua_Integer)lua_toobjid(L, idx));
-#else
-        lua_pushfstring(L, "%s: %p", kind, lua_topointer(L, idx));
-#endif
         if (tt != LUA_TNIL)
           lua_remove(L, -2);  /* remove '__name' */
         break;
@@ -1141,53 +1137,13 @@ static void warnfon (void *ud, const char *message, int tocont) {
 */
 #if !defined(luai_makeseed)
 
-#if defined(LUA_FIXED_POINT)
-
 /*
-** Deterministic seed for fixed-point builds.  String hashing must be
-** reproducible across runs so that hash-table bucket layout (and thus
-** pairs() iteration order) is identical for the same sequence of
-** operations.
+** Deterministic seed for reproducible hash-table bucket layout (and thus
+** pairs() iteration order) for the same sequence of operations.
 */
 static unsigned int luai_makeseed (void) {
   return 0;
 }
-
-#else
-
-#include <time.h>
-
-
-/* Size for the buffer, in bytes */
-#define BUFSEEDB	(sizeof(void*) + sizeof(time_t))
-
-/* Size for the buffer in int's, rounded up */
-#define BUFSEED		((BUFSEEDB + sizeof(int) - 1) / sizeof(int))
-
-/*
-** Copy the contents of variable 'v' into the buffer pointed by 'b'.
-** (The '&b[0]' disguises 'b' to fix an absurd warning from clang.)
-*/
-#define addbuff(b,v)	(memcpy(&b[0], &(v), sizeof(v)), b += sizeof(v))
-
-
-static unsigned int luai_makeseed (void) {
-  unsigned int buff[BUFSEED];
-  unsigned int res;
-  unsigned int i;
-  time_t t = time(NULL);
-  char *b = (char*)buff;
-  addbuff(b, b);  /* local variable's address */
-  addbuff(b, t);  /* time */
-  /* fill (rare but possible) remain of the buffer with zeros */
-  memset(b, 0, sizeof(buff) - BUFSEEDB);
-  res = buff[0];
-  for (i = 1; i < BUFSEED; i++)
-    res ^= (res >> 3) + (res << 7) + buff[i];
-  return res;
-}
-
-#endif  /* LUA_FIXED_POINT */
 
 #endif
 

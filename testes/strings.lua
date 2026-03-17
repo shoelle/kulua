@@ -238,9 +238,7 @@ do
   checkQ(false)
   checkQ(math.huge)
   checkQ(-math.huge)
-  if not _fixedpoint then  -- no NaN in Q16.16
-    assert(string.format("%q", 0/0) == "(0/0)")   -- NaN
-  end
+  assert(string.format("%q", 0/0) == "(0/0)")   -- NaN
   checkerror("no literal", string.format, "%q", {})
 end
 
@@ -268,7 +266,6 @@ assert(string.format("%+08d", 31501) == "+0031501")
 assert(string.format("%+08d", -30927) == "-0030927")
 
 
-if not _fixedpoint then  -- test assumes 64-bit float range
 do    -- longest number that can be formatted
   local i = 1
   local j = 10000
@@ -287,7 +284,6 @@ do    -- longest number that can be formatted
   assert(string.len(s) >= 38 + 101)
   assert(tonumber(s) == -(10^38))
 end
-end   -- not _fixedpoint
 
 
 -- testing large numbers for format
@@ -302,7 +298,7 @@ do   -- assume at least 32 bits
   assert(string.format("%o", 0xABCD) == "125715")
 
   max, min = 0x7fffffffffffffff, -0x8000000000000000
-  if max > 2.0^53 and not _fixedpoint then  -- only for 64-bit floats
+  if max > 2.0^53 then  -- only for 64-bit floats
     assert(string.format("%x", (2^52 | 0) - 1) == "fffffffffffff")
     assert(string.format("0x%8X", 0x8f000003) == "0x8F000003")
     assert(string.format("%d", 2^53) == "9007199254740992")
@@ -317,7 +313,6 @@ do   -- assume at least 32 bits
 end
 
 
-if not _fixedpoint then  -- Q16.16 hex format doesn't match ISO %a normalization
 do print("testing 'format %a %A'")
   local function matchhexa (n)
     local s = string.format("%a", n)
@@ -350,7 +345,6 @@ do print("testing 'format %a %A'")
     assert(string.find(string.format("%.4A", -12), "^%-0X%x%.%x000P%+?%d$"))
   end
 end
-end   -- not _fixedpoint
 
 
 -- testing some flags  (all these results are required by ISO C)

@@ -368,10 +368,8 @@ typedef struct global_State {
   TString *strcache[STRCACHE_N][STRCACHE_M];  /* cache for strings in API */
   lua_WarnFunction warnf;  /* warning function */
   void *ud_warn;         /* auxiliary data to 'warnf' */
-#if defined(LUA_FIXED_POINT)
   lua_Unsigned kulua_objid_counter;  /* monotonic ID for deterministic tostring */
   lu_byte kulua_no_gc_metamethod;   /* disable __gc finalizers (sandbox) */
-#endif
   LX mainth;  /* main thread of this state */
 } global_State;
 

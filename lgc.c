@@ -318,9 +318,7 @@ GCObject *luaC_newobjdt (lua_State *L, lu_byte tt, size_t sz, size_t offset) {
   GCObject *o = cast(GCObject *, p + offset);
   o->marked = luaC_white(g);
   o->tt = tt;
-#if defined(LUA_FIXED_POINT)
   o->kulua_objid = g->kulua_objid_counter++;
-#endif
   o->next = g->allgc;
   g->allgc = o;
   return o;
@@ -1133,10 +1131,8 @@ static void correctpointers (global_State *g, GCObject *o) {
 */
 void luaC_checkfinalizer (lua_State *L, GCObject *o, Table *mt) {
   global_State *g = G(L);
-#if defined(LUA_FIXED_POINT)
   if (g->kulua_no_gc_metamethod)
     return;  /* sandbox: finalizers disabled */
-#endif
   if (tofinalize(o) ||                 /* obj. is already marked... */
       gfasttm(g, mt, TM_GC) == NULL ||    /* or has no finalizer... */
       (g->gcstp & GCSTPCLS))                   /* or closing state? */

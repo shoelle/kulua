@@ -211,16 +211,10 @@ static int luaB_collectgarbage (lua_State *L) {
     case LUA_GCCOUNT: {
       int k = lua_gc(L, o);
       checkvalres(k);
-#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
-      /* Push KB as integer so Lua-side `count * 1024` uses 64-bit int
-      ** arithmetic instead of overflowing Q16.16 float (~32KB max). */
-      lua_pushinteger(L, (lua_Integer)k);
-#else
       {
         int b = lua_gc(L, LUA_GCCOUNTB);
         lua_pushnumber(L, (lua_Number)k + ((lua_Number)b/1024));
       }
-#endif
       return 1;
     }
     case LUA_GCSTEP: {
@@ -576,7 +570,6 @@ LUAMOD_API int luaopen_base (lua_State *L) {
   /* register record constructor and field type constants */
   lua_pushcfunction(L, kulua_record_constructor);
   lua_setfield(L, -2, "record");
-  lua_pushinteger(L, KULUA_FIELD_FX);   lua_setfield(L, -2, "fx");
   lua_pushinteger(L, KULUA_FIELD_I16);  lua_setfield(L, -2, "i16");
   lua_pushinteger(L, KULUA_FIELD_U16);  lua_setfield(L, -2, "u16");
   lua_pushinteger(L, KULUA_FIELD_I8);   lua_setfield(L, -2, "i8");

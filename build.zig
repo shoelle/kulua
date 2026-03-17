@@ -7,13 +7,10 @@ pub fn build(b: *std.Build) void {
     // Option to enable internal test instrumentation (ltests.h)
     const enable_tests = b.option(bool, "tests", "Enable internal Lua test instrumentation (ltests.h)") orelse false;
 
-    // Option to enable Q16.16 fixed-point arithmetic (default: off, uses standard double)
-    const fixed_point = b.option(bool, "fixed-point", "Enable Q16.16 fixed-point arithmetic instead of double") orelse false;
-
-    const lua_lib = buildLua(b, target, optimize, enable_tests, fixed_point);
+    const lua_lib = buildLua(b, target, optimize, enable_tests);
     b.installArtifact(lua_lib);
 
-    const lua_exe = buildInterpreter(b, target, optimize, lua_lib, fixed_point);
+    const lua_exe = buildInterpreter(b, target, optimize, lua_lib);
     b.installArtifact(lua_exe);
 
     // `zig build run` launches the interpreter
@@ -21,23 +18,6 @@ pub fn build(b: *std.Build) void {
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| run_cmd.addArgs(args);
     b.step("run", "Run the Lua interpreter").dependOn(&run_cmd.step);
-
-    // Determinism test harness (only available in fixed-point mode)
-    if (fixed_point) {
-        const det_test = buildDeterminismTest(b, target, optimize, lua_lib, fixed_point);
-        b.installArtifact(det_test);
-
-        // `zig build test-determinism` runs dual-state comparison
-        const run_det = b.addRunArtifact(det_test);
-        run_det.step.dependOn(b.getInstallStep());
-        b.step("test-determinism", "Run dual-state determinism test").dependOn(&run_det.step);
-
-        // `zig build test-determinism-golden` verifies against golden file
-        const run_golden = b.addRunArtifact(det_test);
-        run_golden.step.dependOn(b.getInstallStep());
-        run_golden.addArgs(&.{ "--golden-verify", "testes/determinism_golden.txt" });
-        b.step("test-determinism-golden", "Verify output against golden file").dependOn(&run_golden.step);
-    }
 }
 
 const core_sources = [_][]const u8{
@@ -61,7 +41,6 @@ const core_sources = [_][]const u8{
     "lundump.c",
     "lvm.c",
     "lzio.c",
-    "kulua_fixed.c",
     "kulua_record.c",
 };
 
@@ -80,31 +59,19 @@ const lib_sources = [_][]const u8{
     "lutf8lib.c",
 };
 
-const c_flags_base: []const []const u8 = &.{
+// -ffp-contract=off prevents FMA contraction for deterministic float results
+const c_flags: []const []const u8 = &.{
     "-std=c99",
     "-Wall",
     "-Wextra", "-Wno-unused-parameter",
+    "-ffp-contract=off",
 };
 
-const c_flags_fixed: []const []const u8 = &.{
+const c_flags_tests: []const []const u8 = &.{
     "-std=c99",
     "-Wall",
     "-Wextra", "-Wno-unused-parameter",
-    "-DLUA_FIXED_POINT",
-};
-
-const c_flags_tests_base: []const []const u8 = &.{
-    "-std=c99",
-    "-Wall",
-    "-Wextra", "-Wno-unused-parameter",
-    "-DLUA_USER_H=\"ltests.h\"",
-};
-
-const c_flags_tests_fixed: []const []const u8 = &.{
-    "-std=c99",
-    "-Wall",
-    "-Wextra", "-Wno-unused-parameter",
-    "-DLUA_FIXED_POINT",
+    "-ffp-contract=off",
     "-DLUA_USER_H=\"ltests.h\"",
 };
 
@@ -113,7 +80,6 @@ fn buildLua(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     enable_tests: bool,
-    fixed_point: bool,
 ) *std.Build.Step.Compile {
     const lib = b.addLibrary(.{
         .name = "lua",
@@ -124,10 +90,7 @@ fn buildLua(
         }),
     });
 
-    const flags = if (enable_tests)
-        (if (fixed_point) c_flags_tests_fixed else c_flags_tests_base)
-    else
-        (if (fixed_point) c_flags_fixed else c_flags_base);
+    const flags = if (enable_tests) c_flags_tests else c_flags;
     lib.addCSourceFiles(.{ .files = &core_sources, .flags = flags });
     lib.addCSourceFiles(.{ .files = &lib_sources, .flags = flags });
 
@@ -138,35 +101,11 @@ fn buildLua(
     return lib;
 }
 
-fn buildDeterminismTest(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    lua_lib: *std.Build.Step.Compile,
-    fixed_point: bool,
-) *std.Build.Step.Compile {
-    const exe = b.addExecutable(.{
-        .name = "kulua_test_determinism",
-        .root_module = b.createModule(.{
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        }),
-    });
-
-    const flags = if (fixed_point) c_flags_fixed else c_flags_base;
-    exe.addCSourceFiles(.{ .files = &.{"kulua_test_determinism.c"}, .flags = flags });
-    exe.linkLibrary(lua_lib);
-
-    return exe;
-}
-
 fn buildInterpreter(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     lua_lib: *std.Build.Step.Compile,
-    fixed_point: bool,
 ) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = "lua",
@@ -177,8 +116,7 @@ fn buildInterpreter(
         }),
     });
 
-    const flags = if (fixed_point) c_flags_fixed else c_flags_base;
-    exe.addCSourceFiles(.{ .files = &.{"lua.c"}, .flags = flags });
+    exe.addCSourceFiles(.{ .files = &.{"lua.c"}, .flags = c_flags });
     exe.linkLibrary(lua_lib);
 
     return exe;

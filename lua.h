@@ -208,10 +208,8 @@ LUA_API void	       *(lua_touserdata) (lua_State *L, int idx);
 LUA_API lua_State      *(lua_tothread) (lua_State *L, int idx);
 LUA_API const void     *(lua_topointer) (lua_State *L, int idx);
 
-#if defined(LUA_FIXED_POINT)
 LUA_API lua_Unsigned    (lua_toobjid) (lua_State *L, int idx);
 LUA_API void            (lua_resetobjidcounter) (lua_State *L);
-#endif
 
 /*
 ** Record API

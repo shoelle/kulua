@@ -42,16 +42,12 @@ assert(~~a == a and ~a == -1 ~ a and -d == ~d + 1)
 do   -- constant folding
   local code = string.format("return -1 >> %d", math.maxinteger)
   assert(load(code)() == 0)
-  if not _fixedpoint then  -- mininteger literal doesn't round-trip in Q16.16
-    local code = string.format("return -1 >> %d", math.mininteger)
-    assert(load(code)() == 0)
-  end
+  local code = string.format("return -1 >> %d", math.mininteger)
+  assert(load(code)() == 0)
   local code = string.format("return -1 << %d", math.maxinteger)
   assert(load(code)() == 0)
-  if not _fixedpoint then
-    local code = string.format("return -1 << %d", math.mininteger)
-    assert(load(code)() == 0)
-  end
+  local code = string.format("return -1 << %d", math.mininteger)
+  assert(load(code)() == 0)
 end
 
 assert(-1 >> 1 == (1 << (numbits - 1)) - 1 and 1 << 31 == 0x80000000)
@@ -66,10 +62,8 @@ assert(1 >> math.maxinteger == 0)
 assert(1 << math.mininteger == 0)
 assert(1 << math.maxinteger == 0)
 
-if not _fixedpoint then  -- 2^30 overflows Q16.16
-  assert((2^30 - 1) << 2^30 == 0)
-  assert((2^30 - 1) >> 2^30 == 0)
-end
+assert((2^30 - 1) << 2^30 == 0)
+assert((2^30 - 1) >> 2^30 == 0)
 
 assert(1 >> -3 == 1 << 3 and 1000 >> 5 == 1000 << -5)
 
@@ -80,9 +74,7 @@ assert("0xfffffffffffffffe" & "-1" == -2)
 assert(" \t-0xfffffffffffffffe\n\t" & "-1" == 2)
 assert("   \n  -45  \t " >> "  -2  " == -45 * 4)
 assert("1234.0" << "5.0" == 1234 * 32)
-if not _fixedpoint then  -- 0xffff.0 overflows Q16.16
-  assert("0xffff.0" ~ "0xAAAA" == 0x5555)
-end
+assert("0xffff.0" ~ "0xAAAA" == 0x5555)
 assert(~"0x0.000p4" == -1)
 
 assert(("7" .. 3) << 1 == 146)

@@ -63,7 +63,7 @@
 #else				/* }{ */
 
 #define l_timet			lua_Number
-#define l_pushtime(L,t)		lua_pushnumber(L,luai_int2num((int)(t)))
+#define l_pushtime(L,t)		lua_pushnumber(L,cast_num((int)(t)))
 #define l_gettime(L,arg)	luaL_checknumber(L, arg)
 
 #endif				/* } */
@@ -187,12 +187,7 @@ static int os_getenv (lua_State *L) {
 
 
 static int os_clock (lua_State *L) {
-#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
-  /* clock()/CLOCKS_PER_SEC as Q16.16: (clock * 65536) / CLOCKS_PER_SEC */
-  lua_pushnumber(L, (lua_Number)(((int64_t)clock() * 65536LL) / CLOCKS_PER_SEC));
-#else
   lua_pushnumber(L, ((lua_Number)clock())/(lua_Number)CLOCKS_PER_SEC);
-#endif
   return 1;
 }
 
@@ -379,7 +374,7 @@ static int os_time (lua_State *L) {
 static int os_difftime (lua_State *L) {
   time_t t1 = l_checktime(L, 1);
   time_t t2 = l_checktime(L, 2);
-  lua_pushnumber(L, luai_int2num((int)difftime(t1, t2)));
+  lua_pushnumber(L, cast_num((int)difftime(t1, t2)));
   return 1;
 }
 

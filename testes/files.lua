@@ -968,9 +968,7 @@ t = os.time(D)
 D.year = D.year-1;
 local t1 = os.time(D)
 -- allow for leap years
-if not _fixedpoint then  -- difftime(1 year) overflows Q16.16
-  assert(math.abs(os.difftime(t,t1)/(24*3600) - 365) < 2)
-end
+assert(math.abs(os.difftime(t,t1)/(24*3600) - 365) < 2)
 
 -- should not take more than 1 second to execute these two lines
 t = os.time()

@@ -14,9 +14,7 @@
 #define gval(n)		(&(n)->i_val)
 #define gnext(n)	((n)->u.next)
 
-#if defined(LUA_FIXED_POINT)
 #define gnext_insert(n)	((n)->u.insert_next)
-#endif
 
 
 /*

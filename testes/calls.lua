@@ -244,7 +244,7 @@ assert(a == 23 and (function (x) return x*2 end)(20) == 40)
 
 -- testing closures
 
--- fixed-point operator
+-- fixed point operator
 local Z = function (le)
       local function a (f)
         return le(function (x) return f(f)(x) end)

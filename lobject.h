@@ -299,12 +299,8 @@ typedef union {
 ** Common Header for all collectable objects (in macro form, to be
 ** included in other objects)
 */
-#if defined(LUA_FIXED_POINT)
 #define CommonHeader	struct GCObject *next; lu_byte tt; lu_byte marked; \
 			lua_Unsigned kulua_objid
-#else
-#define CommonHeader	struct GCObject *next; lu_byte tt; lu_byte marked
-#endif
 
 
 /* Common type for all collectable objects */
@@ -347,7 +343,7 @@ typedef struct GCObject {
 #define ttisinteger(o)		checktag((o), LUA_VNUMINT)
 
 #define nvalue(o)	check_exp(ttisnumber(o), \
-	(ttisinteger(o) ? luai_int2num(ivalue(o)) : fltvalue(o)))
+	(ttisinteger(o) ? cast_num(ivalue(o)) : fltvalue(o)))
 #define fltvalue(o)	check_exp(ttisfloat(o), val_(o).n)
 #define ivalue(o)	check_exp(ttisinteger(o), val_(o).i)
 
@@ -543,18 +539,17 @@ typedef struct Udata0 {
 */
 
 /* Record field type constants */
-#define KULUA_FIELD_FX    1   /* int32_t, Q16.16 fixed-point, 4 bytes */
-#define KULUA_FIELD_I16   2   /* int16_t, 2 bytes */
-#define KULUA_FIELD_U16   3   /* uint16_t, 2 bytes */
-#define KULUA_FIELD_I8    4   /* int8_t, 1 byte */
-#define KULUA_FIELD_U8    5   /* uint8_t, 1 byte */
-#define KULUA_FIELD_BOOL  6   /* uint8_t, 1 byte, boolean */
-#define KULUA_FIELD_I32   7   /* int32_t, 4 bytes */
-#define KULUA_FIELD_U32   8   /* uint32_t, 4 bytes */
-#define KULUA_FIELD_I64   9   /* int64_t, 8 bytes */
-#define KULUA_FIELD_F32   10  /* float (IEEE 754), 4 bytes */
+#define KULUA_FIELD_I16   1   /* int16_t, 2 bytes */
+#define KULUA_FIELD_U16   2   /* uint16_t, 2 bytes */
+#define KULUA_FIELD_I8    3   /* int8_t, 1 byte */
+#define KULUA_FIELD_U8    4   /* uint8_t, 1 byte */
+#define KULUA_FIELD_BOOL  5   /* uint8_t, 1 byte, boolean */
+#define KULUA_FIELD_I32   6   /* int32_t, 4 bytes */
+#define KULUA_FIELD_U32   7   /* uint32_t, 4 bytes */
+#define KULUA_FIELD_I64   8   /* int64_t, 8 bytes */
+#define KULUA_FIELD_F32   9   /* float (IEEE 754), 4 bytes */
 
-#define KULUA_FIELD_MAX   10
+#define KULUA_FIELD_MAX   9
 
 
 /* Variant tags */
@@ -872,9 +867,7 @@ typedef union Node {
     TValuefields;  /* fields for value */
     lu_byte key_tt;  /* key type */
     int next;  /* for chaining */
-#if defined(LUA_FIXED_POINT)
     int insert_next;  /* insertion-order chain (-1 = tail) */
-#endif
     Value key_val;  /* key value */
   } u;
   TValue i_val;  /* direct access to node's value as a proper 'TValue' */
@@ -902,10 +895,8 @@ typedef struct Table {
   unsigned int asize;  /* number of slots in 'array' array */
   Value *array;  /* array part */
   Node *node;
-#if defined(LUA_FIXED_POINT)
   int insert_head;  /* first node in insertion order (-1 = empty) */
   int insert_tail;  /* last node in insertion order (-1 = empty) */
-#endif
   struct Table *metatable;
   GCObject *gclist;
 } Table;

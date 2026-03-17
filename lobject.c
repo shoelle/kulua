@@ -424,43 +424,6 @@ int luaO_utf8esc (char *buff, l_uint32 x) {
 ** like an integer (without a decimal point or an exponent), add ".0" to
 ** its end.
 */
-#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
-
-static int tostringbuffFloat (lua_Number n, char *buff) {
-  int len = 0;
-  int32_t v = (int32_t)n;
-  int neg = 0;
-  if (v < 0) {
-    if (v == (int32_t)0x80000000) {
-      /* INT32_MIN edge case: -32768.0 */
-      memcpy(buff, "-32768.0", 8);
-      return 8;
-    }
-    neg = 1;
-    v = -v;
-  }
-  int32_t ipart = v >> 16;
-  uint16_t fpart = (uint16_t)(v & 0xFFFF);
-  if (neg) buff[len++] = '-';
-  len += snprintf(buff + len, (size_t)(LUA_N2SBUFFSZ - len), "%d", (int)ipart);
-  if (fpart != 0) {
-    /* Convert fractional part: fpart/65536 as up to 5 decimal digits */
-    uint32_t f = (uint32_t)(((uint64_t)fpart * 100000u + 32768u) / 65536u);
-    /* Remove trailing zeros */
-    int ndigits = 5;
-    while (ndigits > 1 && f % 10 == 0) { f /= 10; ndigits--; }
-    buff[len++] = '.';
-    len += snprintf(buff + len, (size_t)(LUA_N2SBUFFSZ - len), "%0*u",
-                    ndigits, (unsigned)f);
-  } else {
-    buff[len++] = '.';
-    buff[len++] = '0';
-  }
-  return len;
-}
-
-#else
-
 static int tostringbuffFloat (lua_Number n, char *buff) {
   /* first conversion */
   int len = l_sprintf(buff, LUA_N2SBUFFSZ, LUA_NUMBER_FMT,
@@ -478,8 +441,6 @@ static int tostringbuffFloat (lua_Number n, char *buff) {
   }
   return len;
 }
-
-#endif
 
 
 /*

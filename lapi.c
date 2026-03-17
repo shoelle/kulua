@@ -489,7 +489,6 @@ LUA_API lua_State *lua_tothread (lua_State *L, int idx) {
 ** a 'size_t'. (As the returned pointer is only informative, this
 ** conversion should not be a problem.)
 */
-#if defined(LUA_FIXED_POINT)
 LUA_API lua_Unsigned lua_toobjid (lua_State *L, int idx) {
   const TValue *o = index2value(L, idx);
   if (iscollectable(o))
@@ -501,7 +500,6 @@ LUA_API lua_Unsigned lua_toobjid (lua_State *L, int idx) {
 LUA_API void lua_resetobjidcounter (lua_State *L) {
   G(L)->kulua_objid_counter = 0;
 }
-#endif
 
 
 LUA_API const void *lua_topointer (lua_State *L, int idx) {

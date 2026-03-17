@@ -460,8 +460,7 @@ do   -- tests for string keys in weak tables
   collectgarbage(); collectgarbage()
   local m = collectgarbage("count")         -- current memory
   local a = setmetatable({}, {__mode = "kv"})
-  -- 2^22 overflows Q16.16 range; use smaller size for fixed-point
-  local longlen = _fixedpoint and 2^14 or 2^22
+  local longlen = 2^22
   a[string.rep("a", longlen)] = 25   -- long string key -> number value
   a[string.rep("b", longlen)] = {}   -- long string key -> collectable value
   a[{}] = 14                     -- collectable key

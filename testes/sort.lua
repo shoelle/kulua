@@ -14,7 +14,7 @@ end
 
 
 do print "testing 'table.create'"
-  local N = _fixedpoint and 1000 or 10000
+  local N = 10000
   collectgarbage()
   local m = collectgarbage("count") * 1024
   local t = table.create(N)

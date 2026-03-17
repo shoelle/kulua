@@ -102,9 +102,6 @@
 #include "lvm.c"
 #include "lapi.c"
 
-/* fixed-point math support */
-#include "kulua_fixed.c"
-
 /* record type support */
 #include "kulua_record.c"
 

@@ -92,8 +92,7 @@ assert(c.a == 3)
 do
   local i = 2
   local p = 4    -- p == 2^i
-  -- Q16.16 max representable power of 2 is 2^15 = 32768
-  local maxpow = _fixedpoint and 14 or 1000  -- 1000 = effectively no limit
+  local maxpow = 1000
   repeat
     for j=-3,3 do
       assert(load(string.format([[local a=%s;

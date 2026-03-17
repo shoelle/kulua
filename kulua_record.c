@@ -18,6 +18,7 @@
 #include "lstring.h"
 #include "ltable.h"
 #include "ltm.h"
+#include "lfunc.h"
 #include "ldebug.h"
 #include "ldo.h"
 #include "lapi.h"
@@ -82,6 +83,7 @@ int kulua_fieldsize (int type) {
     case KULUA_FIELD_U8:   return 1;
     case KULUA_FIELD_BOOL: return 1;
     case KULUA_FIELD_I64:  return 8;
+    case KULUA_FIELD_F32:  return 4;
     default: return 0;
   }
 }
@@ -94,7 +96,11 @@ void kulua_record_readfield (TValue *res, const uint8_t *data,
     case KULUA_FIELD_FX: {
       int32_t v;
       memcpy(&v, p, 4);
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
       setfltvalue(res, (lua_Number)v);
+#else
+      setfltvalue(res, (lua_Number)v / 65536.0);
+#endif
       break;
     }
     case KULUA_FIELD_I32: {
@@ -144,6 +150,16 @@ void kulua_record_readfield (TValue *res, const uint8_t *data,
       setivalue(res, (lua_Integer)v);
       break;
     }
+    case KULUA_FIELD_F32: {
+      float v;
+      memcpy(&v, p, 4);
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+      setfltvalue(res, (int32_t)(v * 65536.0f));
+#else
+      setfltvalue(res, (lua_Number)v);
+#endif
+      break;
+    }
     default:
       setnilvalue(res);
       break;
@@ -157,10 +173,20 @@ int kulua_record_writefield (lua_State *L, const TValue *val,
   switch (f->type) {
     case KULUA_FIELD_FX: {
       int32_t v;
-      if (ttisfloat(val))
+      if (ttisfloat(val)) {
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
         v = (int32_t)fltvalue(val);
-      else if (ttisinteger(val))
+#else
+        v = (int32_t)(fltvalue(val) * 65536.0);
+#endif
+      }
+      else if (ttisinteger(val)) {
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
         v = (int32_t)luai_int2num(ivalue(val));
+#else
+        v = (int32_t)(ivalue(val) * 65536);
+#endif
+      }
       else
         luaG_runerror(L, "fx field requires number");
       memcpy(p, &v, 4);
@@ -215,6 +241,22 @@ int kulua_record_writefield (lua_State *L, const TValue *val,
         luaG_runerror(L, "i64 field requires integer");
       int64_t v = (int64_t)ivalue(val);
       memcpy(p, &v, 8);
+      break;
+    }
+    case KULUA_FIELD_F32: {
+      float v;
+      if (ttisfloat(val)) {
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FIXED
+        v = (float)fltvalue(val) / 65536.0f;
+#else
+        v = (float)fltvalue(val);
+#endif
+      }
+      else if (ttisinteger(val))
+        v = (float)ivalue(val);
+      else
+        luaG_runerror(L, "f32 field requires number");
+      memcpy(p, &v, 4);
       break;
     }
     default:

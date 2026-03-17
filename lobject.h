@@ -10,6 +10,7 @@
 
 
 #include <stdarg.h>
+#include <stdint.h>
 
 
 #include "llimits.h"
@@ -551,8 +552,9 @@ typedef struct Udata0 {
 #define KULUA_FIELD_I32   7   /* int32_t, 4 bytes */
 #define KULUA_FIELD_U32   8   /* uint32_t, 4 bytes */
 #define KULUA_FIELD_I64   9   /* int64_t, 8 bytes */
+#define KULUA_FIELD_F32   10  /* float (IEEE 754), 4 bytes */
 
-#define KULUA_FIELD_MAX   9
+#define KULUA_FIELD_MAX   10
 
 
 /* Variant tags */

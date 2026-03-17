@@ -1,7 +1,7 @@
 -- $Id: record.lua $
 -- Tests for the record type
 
-global fx, i8, u8, i16, u16, i32, u32, i64, bool, record
+global fx, i8, u8, i16, u16, i32, u32, i64, bool, f32, record
 global <const> *
 
 print "testing records"
@@ -16,9 +16,10 @@ assert(type(bool) == "number")
 assert(type(i32) == "number")
 assert(type(u32) == "number")
 assert(type(i64) == "number")
+assert(type(f32) == "number")
 
 -- All field types should be distinct
-local types = {fx, i16, u16, i8, u8, bool, i32, u32, i64}
+local types = {fx, i16, u16, i8, u8, bool, i32, u32, i64, f32}
 for i = 1, #types do
   for j = i + 1, #types do
     assert(types[i] ~= types[j], "field types must be distinct")
@@ -108,6 +109,7 @@ local AllTypes = record {
   g = i32,
   h = u32,
   k = i64,
+  m = f32,
 }
 
 local at = AllTypes()
@@ -147,12 +149,85 @@ at.b = -32768
 assert(at.b == -32768)
 
 
+-- f32 (values go through float32, so use tolerance for precision)
+at.m = -1.0
+assert(at.m == -1.0)
+at.m = 0.0
+assert(at.m == 0.0)
+at.m = 42
+assert(at.m == 42.0)
+
+
+-- ====================================================================
+-- f32 field type tests
+-- ====================================================================
+
+do
+  local F32Rec = record { val = f32 }
+  assert(#F32Rec == 4, "f32 should be 4 bytes")
+
+  local r = F32Rec()
+  assert(r.val == 0.0)  -- zero initialized
+
+  -- Round-trip through float32 precision (exact values)
+  r.val = 1.0
+  assert(r.val == 1.0)
+  r.val = -1.0
+  assert(r.val == -1.0)
+  r.val = 0.5
+  assert(r.val == 0.5)
+
+  -- Integer conversion
+  r.val = 100
+  assert(r.val == 100.0)
+  r.val = -50
+  assert(r.val == -50.0)
+
+  -- f32 in record arrays
+  local arr = F32Rec[5]
+  arr[1].val = 1.5
+  arr[2].val = 2.5
+  arr[3].val = 3.5
+  assert(arr[1].val == 1.5)
+  assert(arr[2].val == 2.5)
+  assert(arr[3].val == 3.5)
+
+  -- f32 with other field types in same record
+  local Mixed = record { pos = f32, count = i32, flag = bool }
+  local m = Mixed()
+  m.pos = 2.0
+  m.count = 42
+  m.flag = true
+  assert(m.pos == 2.0)
+  assert(m.count == 42)
+  assert(m.flag == true)
+
+  if not _fixedpoint then
+    -- Tests that require double-precision lua_Number
+    r.val = 0.1  -- not exactly representable in float32
+    assert(math.abs(r.val - 0.1) < 1e-7)
+
+    -- Large values (within float32 range, outside Q16.16 range)
+    r.val = 1e6
+    assert(r.val == 1e6)
+    r.val = -1e6
+    assert(r.val == -1e6)
+    r.val = 3.4028234e+38  -- near FLT_MAX
+    assert(r.val > 3.4e+38)
+
+    -- Very small values
+    r.val = 1.175494e-38  -- near FLT_MIN (normalized)
+    assert(r.val > 0 and r.val < 1e-37)
+  end
+end
+
+
 -- ====================================================================
 -- Record byte size with all types
 -- ====================================================================
 
--- AllTypes: fx(4) + i16(2) + u16(2) + i8(1) + u8(1) + bool(1) + i32(4) + u32(4) + i64(8) = 27
-assert(#AllTypes == 27, "#AllTypes should be 27, got " .. #AllTypes)
+-- AllTypes: fx(4) + i16(2) + u16(2) + i8(1) + u8(1) + bool(1) + i32(4) + u32(4) + i64(8) + f32(4) = 31
+assert(#AllTypes == 31, "#AllTypes should be 31, got " .. #AllTypes)
 
 
 -- ====================================================================

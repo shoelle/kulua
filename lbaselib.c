@@ -585,6 +585,7 @@ LUAMOD_API int luaopen_base (lua_State *L) {
   lua_pushinteger(L, KULUA_FIELD_I32);  lua_setfield(L, -2, "i32");
   lua_pushinteger(L, KULUA_FIELD_U32);  lua_setfield(L, -2, "u32");
   lua_pushinteger(L, KULUA_FIELD_I64);  lua_setfield(L, -2, "i64");
+  lua_pushinteger(L, KULUA_FIELD_F32);  lua_setfield(L, -2, "f32");
   /* initialize shared RecordType metatable */
   kulua_record_init(L);
   return 1;

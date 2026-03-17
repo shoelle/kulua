@@ -1041,6 +1041,7 @@ static inline unsigned kulua_hashfloat (int32_t n) {
 ** Default: luai_int2num is just cast_num.
 */
 #define luai_int2num(i)  cast_num(i)
+#define luai_int2num_w(L,i)  cast_num(i)
 #define KULUA_ONE  1
 
 #endif  /* LUA_FLOAT_FIXED */

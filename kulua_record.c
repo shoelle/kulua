@@ -309,20 +309,6 @@ static RecordType *check_recordtype (lua_State *L, int idx) {
   return rtypevalue(o);
 }
 
-static Record *check_record (lua_State *L, int idx) {
-  const TValue *o = rec_index2value(L, idx);
-  if (!ttisrecord(o))
-    luaL_typeerror(L, idx, "record");
-  return recvalue(o);
-}
-
-static RecordArray *check_recordarray (lua_State *L, int idx) {
-  const TValue *o = rec_index2value(L, idx);
-  if (!ttisrecordarray(o))
-    luaL_typeerror(L, idx, "recordarray");
-  return recarrvalue(o);
-}
-
 
 /* ====================================================================
 ** RecordType metamethods (called via G(L)->mt[LUA_TRECORD])
